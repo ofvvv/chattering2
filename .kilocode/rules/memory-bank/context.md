@@ -1,87 +1,82 @@
-# Active Context: Next.js Starter Template
+# Active Context: Chattering
 
 ## Current State
 
-**Template Status**: ✅ Ready for development
+**Status**: ✅ Initial implementation complete — ready for first `electron .` run
 
-The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. It's ready for AI-assisted expansion to build any type of application.
+All core modules are implemented and all npm/bun dependencies are installed.
 
 ## Recently Completed
 
-- [x] Base Next.js 16 setup with App Router
-- [x] TypeScript configuration with strict mode
-- [x] Tailwind CSS 4 integration
-- [x] ESLint configuration
-- [x] Memory bank documentation
-- [x] Recipe system for common features
+- [x] Replaced Next.js template with full Electron app
+- [x] `package.json` – Electron 33, tmi.js, tiktok-live-connector, electron-store, ws
+- [x] `main.js` – Main process: chat window, settings window, TikTok auth window (cookie capture)
+- [x] `preload.js` – Secure contextBridge API exposing all IPC channels
+- [x] `src/ipc/handlers.js` – All IPC handlers registered (window, settings, twitch, tiktok, youtube, emotes)
+- [x] `src/windows/chat/index.html` – Main chat UI (titlebar, platform tabs, status bar, chat area, events dock, usercard, toasts)
+- [x] `src/windows/chat/chat.css` – Full theme system (dark/light), all UI components styled
+- [x] `src/windows/chat/chat.js` – Chat renderer: messages, emotes, scroll, TTS, events dock, user card, platform listeners
+- [x] `src/windows/settings/index.html` – Settings window with 7 sections
+- [x] `src/windows/settings/settings.css` – Settings window styles
+- [x] `src/windows/settings/settings.js` – Live settings apply, debounced save, range labels
+- [x] `src/connectors/twitch.js` – tmi.js, badge cache, Helix API (user card, badges, moderation)
+- [x] `src/connectors/tiktok.js` – tiktok-live-connector, chat/gift/like/follow/share/subscribe
+- [x] `src/connectors/youtube.js` – ytInitialData scrape + live chat poll (no API key)
+- [x] `src/managers/emote-manager.js` – 7TV, BTTV, FFZ (global + channel), IPC-serialisable cache
+- [x] `src/managers/settings-manager.js` – electron-store with all defaults, get/set/reset
+- [x] Removed all Next.js files (src/app, next.config.ts, postcss, tsconfig)
+- [x] Dependencies installed via bun
 
-## Current Structure
+## File Structure
 
-| File/Directory | Purpose | Status |
-|----------------|---------|--------|
-| `src/app/page.tsx` | Home page | ✅ Ready |
-| `src/app/layout.tsx` | Root layout | ✅ Ready |
-| `src/app/globals.css` | Global styles | ✅ Ready |
-| `.kilocode/` | AI context & recipes | ✅ Ready |
-
-## Current Focus
-
-The template is ready. Next steps depend on user requirements:
-
-1. What type of application to build
-2. What features are needed
-3. Design/branding preferences
-
-## Quick Start Guide
-
-### To add a new page:
-
-Create a file at `src/app/[route]/page.tsx`:
-```tsx
-export default function NewPage() {
-  return <div>New page content</div>;
-}
+```
+chattering/
+├── main.js                        # Electron main process
+├── preload.js                     # contextBridge IPC bridge
+├── package.json
+├── src/
+│   ├── windows/
+│   │   ├── chat/
+│   │   │   ├── index.html         # Main chat window
+│   │   │   ├── chat.css           # Chat styles (dark/light theme)
+│   │   │   └── chat.js            # Chat renderer
+│   │   ├── settings/
+│   │   │   ├── index.html         # Settings window
+│   │   │   ├── settings.css       # Settings styles
+│   │   │   └── settings.js        # Settings renderer
+│   ├── connectors/
+│   │   ├── twitch.js              # tmi.js + Helix API
+│   │   ├── tiktok.js              # tiktok-live-connector
+│   │   └── youtube.js             # scrape + poll (no API key)
+│   ├── managers/
+│   │   ├── emote-manager.js       # 7TV, BTTV, FFZ
+│   │   └── settings-manager.js   # electron-store wrapper
+│   └── ipc/
+│       └── handlers.js            # All IPC handler registrations
+└── assets/icons/                  # App icons (add icon.png/ico/icns)
 ```
 
-### To add components:
+## How to Run
 
-Create `src/components/` directory and add components:
-```tsx
-// src/components/ui/Button.tsx
-export function Button({ children }: { children: React.ReactNode }) {
-  return <button className="px-4 py-2 bg-blue-600 text-white rounded">{children}</button>;
-}
+```bash
+bun start         # Run in production mode
+bun run dev       # Run with DevTools open
+bun run build     # Package with electron-builder
 ```
 
-### To add a database:
+## Pending / Future Work
 
-Follow `.kilocode/recipes/add-database.md`
-
-### To add API routes:
-
-Create `src/app/api/[route]/route.ts`:
-```tsx
-import { NextResponse } from "next/server";
-
-export async function GET() {
-  return NextResponse.json({ message: "Hello" });
-}
-```
-
-## Available Recipes
-
-| Recipe | File | Use Case |
-|--------|------|----------|
-| Add Database | `.kilocode/recipes/add-database.md` | Data persistence with Drizzle + SQLite |
-
-## Pending Improvements
-
-- [ ] Add more recipes (auth, email, etc.)
-- [ ] Add example components
-- [ ] Add testing setup recipe
+- [ ] Add app icons (assets/icons/icon.png, .ico, .icns)
+- [ ] Add TikTok cookie forwarding from auth window to connector (sessionId injection)
+- [ ] Add configurable highlight words (currently stored but not rendered)
+- [ ] Add context-menu on right-click messages (delete, ban, timeout)
+- [ ] Add animated emote toggle (disable GIFs for performance)
+- [ ] Test on all three platforms (Twitch/TikTok/YouTube) live
+- [ ] Add auto-reconnect UI feedback with retry counter
+- [ ] Add chat history export for the session
 
 ## Session History
 
-| Date | Changes |
-|------|---------|
-| Initial | Template created with base setup |
+| Date        | Changes                                            |
+|-------------|----------------------------------------------------|
+| 2026-03-18  | Full Chattering Electron app created from scratch  |

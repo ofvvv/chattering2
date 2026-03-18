@@ -1,48 +1,40 @@
-# Project Brief: Next.js Starter Template
+# Project Brief: Chattering
 
 ## Purpose
 
-This is a minimal Next.js starter template designed for AI-assisted development. It provides a clean foundation that can be extended to build any type of web application through interaction with an AI assistant.
+**Chattering** is a lightweight, multi-platform live chat client built with Electron, designed for streamers. It unifies chat from Twitch, TikTok, and YouTube in a single interface inspired by Chatterino, with extra features for a modern streaming workflow.
 
 ## Target Users
 
-- Developers wanting a clean Next.js starting point
-- Users building applications through AI-assisted coding
-- Teams needing a standardized, modern Next.js setup
+- Live streamers using Twitch, TikTok Live, and/or YouTube Live simultaneously
+- Streamers who need moderation tools, event monitoring, and emote support in one place
 
-## Core Use Case
+## Core Features
 
-Users describe what they want to build to an AI assistant, which then expands this template by:
+- **Twitch**: Connect via tmi.js (IRC), Helix API for moderation and user cards, badge support
+- **TikTok**: Connect via tiktok-live-connector (no API key), automatic cookie login via embedded Electron window
+- **YouTube**: Connect without API key (scrape ytInitialData + poll live chat continuation)
+- **Emotes**: 7TV, BTTV, FFZ (global + channel), Twitch native (per-message)
+- **Events dock**: Resizable panel showing follows, subs, gifts, bits, likes, raids
+- **Settings**: Floating window with live-applied settings (theme, font, TTS, filters, alerts, moderation)
+- **TTS**: Web Speech API with queue, configurable rate/pitch/volume
+- **Chat controls**: Scroll auto-pause + "new messages" button, per-message moderation
+- **User cards**: Popup with follow date, sub status, per-session message count
 
-1. Adding components and pages as needed
-2. Installing additional dependencies
-3. Setting up databases, authentication, etc. using recipes
-4. Customizing styling and branding
+## Tech Stack
 
-## Key Requirements
+- **Runtime**: Electron 33
+- **Main process**: Node.js (CommonJS)
+- **Renderer**: Vanilla HTML + CSS + JS (fully separated files, no framework)
+- **Chat**: tmi.js
+- **TikTok**: tiktok-live-connector
+- **Settings persistence**: electron-store
+- **Package manager**: Bun
 
-### Must Have
+## Key Constraints
 
-- Modern Next.js 16 setup with App Router
-- TypeScript for type safety
-- Tailwind CSS 4 for styling
-- ESLint for code quality
-- Clean, minimal starting structure
-- Bun as package manager
-
-### Nice to Have
-
-- Recipe system for common additions (database, auth)
-- Memory bank for AI context persistence
-- Clear development guidelines
-
-## Success Metrics
-
-- Clean, zero-error TypeScript setup
-- Passing lint and type checks
-
-## Constraints
-
-- Minimal dependencies by default
-- Framework: Next.js 16 + React 19 + Tailwind CSS 4
-- Package manager: Bun
+- Max ~5% CPU, ~250 MB RAM target
+- No mixing of HTML/CSS/JS — always in separate files
+- No TypeScript (pure JS for Electron main+renderer)
+- No API key requirement for TikTok or YouTube
+- Settings window is a separate floating BrowserWindow
