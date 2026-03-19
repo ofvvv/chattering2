@@ -15,7 +15,10 @@ const DEFAULTS = {
   theme:           'dark',
   alwaysOnTop:     false,
   translucent:     false,
+  transparency:    100,
   fontSize:        13,
+  hideBots:        false,
+  showPlatformLogos: true,
   maxMessages:     500,
   showTimestamps:  false,
   animatedEmotes:  true,
@@ -25,6 +28,7 @@ const DEFAULTS = {
   windowHeight: 900,
   windowX:      null,
   windowY:      null,
+  dockPosition: 'bottom',
 
   // Chat
   filterPlatform:    'all',
@@ -52,7 +56,7 @@ const DEFAULTS = {
   modHighlight:    false,
 
   // Connections
-  twitchClientId: '',
+  twitchClientId: 'w2q6ngvevmf1gkuu1ngiqwmyzqmjrt',
   twitchToken:    '',
   twitchChannel:  '',
   youtubeChannel: '',

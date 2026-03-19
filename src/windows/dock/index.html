@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https: wss:;">
+  <title>Eventos - Chattering</title>
+  <link rel="stylesheet" href="dock.css">
+</head>
+<body class="theme-dark">
+  <!-- Events dock - floating window version -->
+  <aside id="events-dock" class="dock-float">
+    <div id="dock-header">
+      <span>Eventos</span>
+      <div id="dock-controls">
+        <button id="btn-dock-top" class="dock-btn" title="Mover arriba">
+          <svg viewBox="0 0 24 24"><path d="M7 14l5-5 5 5z"/></svg>
+        </button>
+        <button id="btn-dock-left" class="dock-btn" title="Mover izquierda">
+          <svg viewBox="0 0 24 24"><path d="M14 7l-5 5 5 5z"/></svg>
+        </button>
+        <button id="btn-dock-right" class="dock-btn" title="Mover derecha">
+          <svg viewBox="0 0 24 24"><path d="M10 17l5-5-5-5z"/></svg>
+        </button>
+        <button id="btn-dock-bottom" class="dock-btn" title="Mover abajo">
+          <svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>
+        </button>
+        <button id="btn-clear-events" title="Limpiar eventos">
+          <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+    </div>
+    <div id="dock-events" role="log" aria-live="polite"></div>
+  </aside>
+
+  <script src="dock.js"></script>
+</body>
+</html>

@@ -5,6 +5,18 @@
    Handles: section navigation, reading/writing settings, live preview
    ═══════════════════════════════════════════════════════════════════════════ */
 
+// Global error handler - log all errors to console
+window.onerror = function(msg, url, line, col, error) {
+  console.error('[Settings Error]', msg, 'at line', line, ':', col);
+  if (error && error.stack) console.error('[Stack]', error.stack);
+  return false;
+};
+
+window.onunhandledrejection = function(event) {
+  console.error('[Settings Unhandled Promise Rejection]', event.reason);
+};
+
+// DOM helpers - $ for single element, $$ for multiple
 const $ = (sel, ctx = document) => ctx.querySelector(sel);
 const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
 
@@ -35,9 +47,9 @@ function setupNavigation() {
 
 // ─── Apply settings → UI ──────────────────────────────────────────────────────
 function applySettingsToUI(s) {
-  // Theme
-  document.body.classList.remove('theme-dark', 'theme-light');
-  document.body.classList.add(s.theme === 'light' ? 'theme-light' : 'theme-dark');
+  // Theme - support all themes
+  document.body.classList.remove('theme-dark', 'theme-light', 'theme-gray', 'theme-lightgray', 'theme-sakura', 'theme-midnight');
+  document.body.classList.add(`theme-${s.theme || 'dark'}`);
 
   // Map each control to its setting key
   $$('[data-key]').forEach(el => {
@@ -71,8 +83,20 @@ function setupControls() {
     el.addEventListener('input', () => updateRangeLabel(el));
   });
 
+  // Hide bots toggle - show/hide bot list
+  const hideBotsToggle = $('#chk-hide-bots');
+  const botListGroup = $('#bot-list-group');
+  if (hideBotsToggle && botListGroup) {
+    // Initial state
+    botListGroup.style.display = hideBotsToggle.checked ? 'flex' : 'none';
+    
+    hideBotsToggle.addEventListener('change', () => {
+      botListGroup.style.display = hideBotsToggle.checked ? 'flex' : 'none';
+    });
+  }
+
   // Reset button
-  $('#btn-reset-settings').addEventListener('click', async () => {
+  $('#btn-reset-settings')?.addEventListener('click', async () => {
     if (!confirm('¿Restablecer todos los ajustes por defecto?')) return;
     currentSettings = await window.chattering.settings.set({});
     applySettingsToUI(currentSettings);
@@ -92,8 +116,15 @@ function onControlChange(el) {
 
   // Apply theme changes immediately in settings window
   if (key === 'theme') {
-    document.body.classList.remove('theme-dark', 'theme-light');
-    document.body.classList.add(val === 'light' ? 'theme-light' : 'theme-dark');
+    document.body.classList.remove('theme-dark', 'theme-light', 'theme-gray', 'theme-lightgray', 'theme-sakura', 'theme-midnight');
+    document.body.classList.add(`theme-${val}`);
+    // Also apply to chat window
+    window.chattering.settings.set({ theme: val });
+  }
+
+  // Apply transparency immediately
+  if (key === 'transparency' || key === 'translucent') {
+    window.chattering.window.setTransparency(currentSettings.transparency);
   }
 
   debouncedSave();
@@ -114,7 +145,8 @@ function updateRangeLabel(el) {
     maxMessages:  'lbl-max-messages',
     ttsRate:      'lbl-tts-rate',
     ttsVolume:    'lbl-tts-volume',
-    ttsPitch:     'lbl-tts-pitch'
+    ttsPitch:     'lbl-tts-pitch',
+    transparency: 'lbl-transparency'
   };
   const labelId = labelMap[el.dataset.key];
   if (labelId) {
@@ -126,14 +158,182 @@ function updateRangeLabel(el) {
 // ─── Saved indicator ──────────────────────────────────────────────────────────
 function showSaved() {
   const indicator = $('#settings-saved-indicator');
-  indicator.textContent = '✔ Guardado';
-  indicator.classList.add('show');
-  setTimeout(() => indicator.classList.remove('show'), 1800);
+  if (indicator) {
+    indicator.textContent = '✔ Guardado';
+    indicator.classList.add('show');
+    setTimeout(() => indicator.classList.remove('show'), 1800);
+  }
+}
+
+// ─── Toast notification ───────────────────────────────────────────────────────
+function showToast(message, type = 'info') {
+  // Create toast element
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  
+  // Add to container or create one
+  let container = $('#toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;';
+    document.body.appendChild(container);
+  }
+  
+  container.appendChild(toast);
+  
+  // Auto remove after 3 seconds
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
 }
 
 // ─── Window buttons ───────────────────────────────────────────────────────────
 function setupWindowButtons() {
-  $('#btn-close-settings').addEventListener('click', () => {
+  $('#btn-close-settings')?.addEventListener('click', () => {
     window.chattering.window.close();
   });
+
+  // ── Twitch OAuth ─────────────────────────────────────────────────────────────
+  $('#btn-twitch-login')?.addEventListener('click', () => {
+    console.log('[Settings] Twitch login clicked');
+    const clientId = currentSettings.twitchClientId || 'w2q6ngvevmf1gkuu1ngiqwmyzqmjrt';
+    window.chattering.twitch.openOAuth(clientId);
+  });
+
+  $('#btn-twitch-logout')?.addEventListener('click', async () => {
+    console.log('[Settings] Twitch logout clicked');
+    if (!confirm('¿Cerrar sesión de Twitch?')) return;
+    await window.chattering.settings.set({ twitchToken: '' });
+    currentSettings.twitchToken = '';
+    updateConnectionStatus('twitch', false);
+    showSaved();
+  });
+
+  // Listen for OAuth token capture
+  window.chattering.twitch.onOAuthCaptured?.((data) => {
+    console.log('[Settings] OAuth captured:', data);
+    currentSettings.twitchToken = data.token;
+    window.chattering.settings.set({ twitchToken: data.token });
+    updateConnectionStatus('twitch', true);
+    showSaved();
+    showToast('Token de Twitch capturado correctamente', 'success');
+  });
+
+  // ── YouTube Connect ──────────────────────────────────────────────────────────
+  $('#btn-youtube-connect')?.addEventListener('click', async () => {
+    console.log('[Settings] YouTube connect clicked');
+    const channelId = $('#txt-yt-channel')?.value;
+    if (!channelId) {
+      alert('Por favor ingresa un canal de YouTube');
+      return;
+    }
+    // Save the channel first
+    await window.chattering.settings.set({ youtubeChannel: channelId });
+    currentSettings.youtubeChannel = channelId;
+    showSaved();
+    
+    // Try to connect
+    try {
+      updateConnectionStatus('youtube', false, 'Conectando…');
+      await window.chattering.youtube.connect(channelId);
+      updateConnectionStatus('youtube', true, 'Conectado');
+    } catch (e) {
+      console.error('[Settings] YouTube connect error:', e);
+      updateConnectionStatus('youtube', false, 'Error');
+      alert('Error conectando a YouTube: ' + e.message);
+    }
+  });
+
+  $('#btn-youtube-disconnect')?.addEventListener('click', async () => {
+    console.log('[Settings] YouTube disconnect clicked');
+    await window.chattering.youtube.disconnect();
+    updateConnectionStatus('youtube', false);
+  });
+
+  // ── TikTok Login ────────────────────────────────────────────────────────────
+  $('#btn-tiktok-login')?.addEventListener('click', () => {
+    console.log('[Settings] TikTok login clicked');
+    window.chattering.tiktok.openAuthWindow();
+  });
+
+  $('#btn-tiktok-logout')?.addEventListener('click', async () => {
+    console.log('[Settings] TikTok logout clicked');
+    if (!confirm('¿Cerrar sesión de TikTok? Esto eliminará las cookies guardadas.')) return;
+    // TikTok cookies are stored in session, we need to clear them
+    await window.chattering.settings.set({ tiktokCookies: null });
+    currentSettings.tiktokCookies = null;
+    updateConnectionStatus('tiktok', false);
+    showSaved();
+  });
+
+  // Listen for connection status updates from main window
+  window.chattering.twitch.onStatus?.((data) => {
+    console.log('[Settings] Twitch status update:', data);
+    updateConnectionStatus('twitch', data.connected);
+  });
+
+  window.chattering.youtube.onStatus?.((data) => {
+    console.log('[Settings] YouTube status update:', data);
+    updateConnectionStatus('youtube', data.connected, data.message);
+  });
+
+  window.chattering.tiktok.onStatus?.((data) => {
+    console.log('[Settings] TikTok status update:', data);
+    updateConnectionStatus('tiktok', data.connected);
+  });
+
+  // Listen for TikTok cookies captured
+  window.chattering.tiktok.onCookiesCaptured?.((cookies) => {
+    console.log('[Settings] TikTok cookies captured');
+    if (cookies) {
+      currentSettings.tiktokCookies = cookies;
+      updateConnectionStatus('tiktok', true);
+      showToast('Sesión de TikTok detectada', 'success');
+    }
+  });
+
+  // Check initial connection status
+  checkInitialConnectionStatus();
+}
+
+// ─── Connection status ───────────────────────────────────────────────────────
+function updateConnectionStatus(platform, connected, customMsg = null) {
+  const statusEl = $(`#status-${platform}`);
+  if (!statusEl) return;
+  
+  if (connected) {
+    statusEl.textContent = customMsg || 'Conectado';
+    statusEl.classList.add('connected');
+    
+    // Toggle buttons: hide login, show logout
+    const loginBtn = $(`#btn-${platform}-login`);
+    const logoutBtn = $(`#btn-${platform}-logout`);
+    if (loginBtn) loginBtn.classList.add('hidden');
+    if (logoutBtn) logoutBtn.classList.remove('hidden');
+  } else {
+    statusEl.textContent = customMsg || 'Desconectado';
+    statusEl.classList.remove('connected');
+    
+    // Toggle buttons: show login, hide logout
+    const loginBtn = $(`#btn-${platform}-login`);
+    const logoutBtn = $(`#btn-${platform}-logout`);
+    if (loginBtn) loginBtn.classList.remove('hidden');
+    if (logoutBtn) logoutBtn.classList.add('hidden');
+  }
+}
+
+async function checkInitialConnectionStatus() {
+  // Check if we have credentials saved - update UI to show correct button state
+  if (currentSettings.twitchToken) {
+    updateConnectionStatus('twitch', true);
+  }
+  if (currentSettings.youtubeChannel) {
+    updateConnectionStatus('youtube', true);
+  }
+  if (currentSettings.tiktokCookies) {
+    updateConnectionStatus('tiktok', true);
+  }
 }

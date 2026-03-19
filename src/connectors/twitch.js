@@ -22,17 +22,26 @@ const badgeCache = {};
 
 // ─── Connect ─────────────────────────────────────────────────────────────────
 async function connect(channel, token, getWin) {
-  if (client) await disconnect();
+  console.log('[Twitch Connector] Intentando conectar a:', channel);
+  if (client) {
+    console.log('[Twitch Connector] Ya hay un cliente, desconectando primero...');
+    await disconnect();
+  }
   getMainWindow = getWin;
   activeChannel = channel.toLowerCase();
   oauthToken    = token || SettingsManager.get().twitchToken || null;
+  console.log('[Twitch Connector] Token disponible:', oauthToken ? 'sí' : 'no');
 
-  const clientId = SettingsManager.get().twitchClientId || null;
+  // Use default clientId if not set in settings
+  const defaultClientId = 'w2q6ngvevmf1gkuu1ngiqwmyzqmjrt';
+  const clientId = SettingsManager.get().twitchClientId || defaultClientId;
+  console.log('[Twitch Connector] Client ID disponible:', clientId ? 'sí' : 'no', '(using default if needed)');
 
   // Clean token
   const cleanToken = oauthToken
     ? oauthToken.startsWith('oauth:') ? oauthToken : `oauth:${oauthToken}`
     : undefined;
+  console.log('[Twitch Connector] Token limpio:', cleanToken ? 'sí' : 'no');
 
   // Try to resolve the broadcaster user ID for API calls
   if (clientId && cleanToken) {
@@ -48,10 +57,12 @@ async function connect(channel, token, getWin) {
 
   // Build tmi client
   const opts = {
-    options: { debug: false },
+    options: { debug: true },  // Enable tmi.js debug
     connection: { reconnect: true, secure: true },
     channels: [activeChannel]
   };
+
+  console.log('[Twitch Connector] Opciones del cliente:', opts);
 
   if (cleanToken) {
     opts.identity = {
@@ -61,6 +72,8 @@ async function connect(channel, token, getWin) {
   }
 
   client = new tmi.Client(opts);
+
+  console.log('[Twitch Connector] Cliente tmi.js creado, agregando listeners...');
 
   client.on('message',     onMessage);
   client.on('cheer',       onCheer);
@@ -74,9 +87,16 @@ async function connect(channel, token, getWin) {
   client.on('connected',   () => emitStatus(true));
   client.on('disconnected',() => emitStatus(false));
 
-  await client.connect();
+  console.log('[Twitch Connector] Listeners agregados, conectando...');
 
-  return { connected: true, userId };
+  try {
+    await client.connect();
+    console.log('[Twitch Connector] Connect() completado con éxito');
+    return { connected: true, userId };
+  } catch (err) {
+    console.error('[Twitch Connector] Error al conectar:', err.message);
+    return { connected: false, error: err.message };
+  }
 }
 
 // ─── Disconnect ───────────────────────────────────────────────────────────────
@@ -90,11 +110,12 @@ async function disconnect() {
 
 // ─── Message handler ──────────────────────────────────────────────────────────
 function onMessage(channel, userstate, message, self) {
-  if (self) return;  // Ignore own messages
+  console.log('[Twitch Connector] Mensaje recibido:', { channel, username: userstate.username, message: message.substring(0, 50) });
+  //if (self) return;  // Ignore own messages
 
   const isAction = message.startsWith('\u0001ACTION ');
   const cleanMsg = isAction ? message.slice(8, -1) : message;
-
+  console.log(cleanMsg, "MENSAJE");
   const resolved = resolveBadges(userstate['badges'] || {});
 
   emit('twitch:message', {
@@ -231,7 +252,11 @@ async function getUserCard(channel, username) {
 
 // ─── Badge loading ────────────────────────────────────────────────────────────
 async function loadBadges(channel, token, clientId) {
-  if (!token || !clientId) return;
+  console.log('[Twitch] loadBadges llamado con channel:', channel, 'token:', token ? 'sí' : 'no', 'clientId:', clientId ? 'sí' : 'no', 'userId:', userId);
+  if (!token || !clientId) {
+    console.log('[Twitch] loadBadges: sin token o clientId, saliendo');
+    return;
+  }
 
   try {
     const [globalRes, channelRes] = await Promise.all([
@@ -240,6 +265,9 @@ async function loadBadges(channel, token, clientId) {
         ? helixGet(`https://api.twitch.tv/helix/chat/badges?broadcaster_id=${userId}`, token, clientId)
         : null
     ]);
+
+    console.log('[Twitch] Badges global:', globalRes?.data?.length || 0);
+    console.log('[Twitch] Badges channel:', channelRes?.data?.length || 0);
 
     const allSets = [...(globalRes?.data || []), ...(channelRes?.data || [])];
     allSets.forEach(set => {
@@ -251,7 +279,10 @@ async function loadBadges(channel, token, clientId) {
         };
       });
     });
-  } catch (_) { /* badges are non-critical */ }
+    console.log('[Twitch] Badge cache keys:', Object.keys(badgeCache));
+  } catch (err) {
+    console.error('[Twitch] Error cargando badges:', err.message);
+  }
 }
 
 function resolveBadges(rawBadges) {
@@ -275,8 +306,14 @@ async function helixGet(url, token, clientId) {
 
 // ─── Emitters ─────────────────────────────────────────────────────────────────
 function emit(channel, data) {
-  const win = getMainWindow?.();
-  if (win && !win.isDestroyed()) win.webContents.send(channel, data);
+  console.log('[Twitch Connector] Enviando mensaje al renderer:', channel, data);
+  const { BrowserWindow } = require('electron');
+  // Broadcast to all windows, not just main window
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(channel, data);
+    }
+  });
 }
 
 function emitStatus(connected) {

@@ -12,7 +12,8 @@ contextBridge.exposeInMainWorld('chattering', {
     maximize: () => ipcRenderer.send('window:maximize'),
     close:    () => ipcRenderer.send('window:close'),
     setAlwaysOnTop: (val) => ipcRenderer.send('window:alwaysOnTop', val),
-    setTranslucent: (val) => ipcRenderer.send('window:translucent', val)
+    setTranslucent: (val) => ipcRenderer.send('window:translucent', val),
+    setTransparency: (val) => ipcRenderer.send('window:transparency', val)
   },
 
   // ── Settings ───────────────────────────────────────────────────────────────
@@ -24,6 +25,7 @@ contextBridge.exposeInMainWorld('chattering', {
 
   // ── Twitch ─────────────────────────────────────────────────────────────────
   twitch: {
+    openOAuth:     (clientId) => ipcRenderer.send('twitch:openOAuth', clientId),
     connect:       (channel, token) => ipcRenderer.invoke('twitch:connect', channel, token),
     disconnect:    () => ipcRenderer.invoke('twitch:disconnect'),
     ban:           (channel, user, reason) => ipcRenderer.invoke('twitch:ban', channel, user, reason),
@@ -32,15 +34,18 @@ contextBridge.exposeInMainWorld('chattering', {
     deleteMessage: (channel, msgId) => ipcRenderer.invoke('twitch:deleteMessage', channel, msgId),
     getUserCard:   (channel, user) => ipcRenderer.invoke('twitch:getUserCard', channel, user),
     sendMessage:   (channel, msg) => ipcRenderer.invoke('twitch:sendMessage', channel, msg),
+    getUser:       () => ipcRenderer.invoke('twitch:getUser'),
     onMessage:     (cb) => ipcRenderer.on('twitch:message', (_e, data) => cb(data)),
     onEvent:       (cb) => ipcRenderer.on('twitch:event', (_e, data) => cb(data)),
-    onStatus:      (cb) => ipcRenderer.on('twitch:status', (_e, data) => cb(data))
+    onStatus:      (cb) => ipcRenderer.on('twitch:status', (_e, data) => cb(data)),
+    onOAuthCaptured: (cb) => ipcRenderer.on('twitch:oauth-captured', (_e, data) => cb(data))
   },
 
   // ── TikTok ─────────────────────────────────────────────────────────────────
   tiktok: {
     openAuthWindow: () => ipcRenderer.send('tiktok:openAuth'),
-    connect:        (username) => ipcRenderer.invoke('tiktok:connect', username),
+    setCookies:    (cookies) => ipcRenderer.send('tiktok:setCookies', cookies),
+    connect:        (username, sessionId) => ipcRenderer.invoke('tiktok:connect', username, sessionId),
     disconnect:     () => ipcRenderer.invoke('tiktok:disconnect'),
     onMessage:      (cb) => ipcRenderer.on('tiktok:message', (_e, data) => cb(data)),
     onEvent:        (cb) => ipcRenderer.on('tiktok:event', (_e, data) => cb(data)),
@@ -60,6 +65,19 @@ contextBridge.exposeInMainWorld('chattering', {
   emotes: {
     loadForChannel: (platform, channelId) => ipcRenderer.invoke('emotes:loadForChannel', platform, channelId),
     getCache:       () => ipcRenderer.invoke('emotes:getCache')
+  },
+
+  // ── Dock Window ───────────────────────────────────────────────────────────
+  dock: {
+    openFloat:    () => ipcRenderer.send('dock:openFloat'),
+    setPosition:  (pos) => ipcRenderer.send('dock:setPosition', pos),
+    clearEvents:  () => ipcRenderer.send('dock:clearEvents'),
+    addEvent:     (event) => ipcRenderer.send('dock:addEvent', event),
+    // Listen for events from main process
+    _onDockEvent: (cb) => ipcRenderer.on('dock:event', (_e, data) => cb(data)),
+    _onDockClear: (cb) => ipcRenderer.on('dock:clearEvents', (_e, data) => cb(data)),
+    // Listen for dock window closed
+    _onDockClosed: (cb) => ipcRenderer.on('dock:closed', (_e, data) => cb(data))
   },
 
   // ── TTS ────────────────────────────────────────────────────────────────────

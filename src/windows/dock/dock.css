@@ -1,0 +1,207 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Chattering – Dock Window Styles
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* CSS custom properties (theme) */
+:root {
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #252525;
+  --bg-tertiary: #2f2f2f;
+  --text-primary: #ffffff;
+  --text-secondary: #b0b0b0;
+  --text-muted: #707070;
+  --accent: #9147ff;
+  --accent-hover: #772ce8;
+  --border: #3a3a3a;
+  --danger: #ff4842;
+  --success: #4caf50;
+  --warning: #ff9800;
+  --info: #2196f3;
+}
+
+/* Dark theme (default) */
+body.theme-dark {
+  --bg-primary: #0e0e10;
+  --bg-secondary: #18181b;
+  --bg-tertiary: #1f1f23;
+  --text-primary: #efeff1;
+  --text-secondary: #adadb8;
+  --text-muted: #53535f;
+  --accent: #9147ff;
+  --accent-hover: #772ce8;
+  --border: #2f2f35;
+}
+
+/* Light theme */
+body.theme-light {
+  --bg-primary: #f7f7f8;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #efeff1;
+  --text-primary: #0e0e10;
+  --text-secondary: #53535f;
+  --text-muted: #adadb8;
+  --accent: #9147ff;
+  --accent-hover: #772ce8;
+  --border: #d1d1d3;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  font-size: 14px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ── Events dock ─────────────────────────────────────────────────────────── */
+#events-dock {
+  display: flex;
+  flex-direction: column;
+  width: 300px;
+  height: 400px;
+  min-width: 200px;
+  min-height: 150px;
+  max-width: 600px;
+  max-height: 800px;
+  background: var(--bg-secondary);
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+#dock-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  cursor: move;
+  border-radius: 8px 8px 0 0;
+  flex-shrink: 0;
+}
+
+#dock-controls {
+  display: flex;
+  gap: 2px;
+}
+
+/* Dock buttons */
+.dock-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.dock-btn svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+.dock-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.dock-btn.active {
+  background: var(--accent);
+  color: white;
+}
+
+#btn-clear-events:hover {
+  background: var(--danger);
+  color: white;
+}
+
+/* Dock events area */
+#dock-events {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* ── Event item ─────────────────────────────────────────────────────────── */
+.event-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 6px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.event-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.event-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.event-message {
+  word-break: break-word;
+}
+
+.event-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+
+/* Event types */
+.event-follow .event-icon { color: var(--info); }
+.event-sub .event-icon { color: var(--accent); }
+.event-gift .event-icon { color: var(--success); }
+.event-raid .event-icon { color: var(--warning); }
+.event-host .event-icon { color: var(--danger); }
+
+/* ── Scrollbar ─────────────────────────────────────────────────────────── */
+#dock-events::-webkit-scrollbar {
+  width: 6px;
+}
+
+#dock-events::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#dock-events::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+#dock-events::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}

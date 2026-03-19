@@ -49,6 +49,74 @@ html, body {
   --radius-sm:    3px;
 }
 
+.theme-gray {
+  --bg-primary:   #4a4a4a;
+  --bg-secondary: #5a5a5a;
+  --bg-tertiary:  #6a6a6a;
+  --bg-hover:     #7a7a7a;
+  --border:       #888888;
+  --text-primary: #f0f0f0;
+  --text-muted:   #c0c0c0;
+  --text-dim:     #a0a0a0;
+  --accent:       #9147ff;
+  --accent-hover: #a970ff;
+  --danger:       #ff4444;
+  --success:      #44ff44;
+  --radius:       6px;
+  --radius-sm:    3px;
+}
+
+.theme-lightgray {
+  --bg-primary:   #d0d0d0;
+  --bg-secondary: #e0e0e0;
+  --bg-tertiary:  #f0f0f0;
+  --bg-hover:     #ffffff;
+  --border:       #bbbbbb;
+  --text-primary: #1a1a1a;
+  --text-muted:   #555555;
+  --text-dim:     #777777;
+  --accent:       #6a5acd;
+  --accent-hover: #7b68ee;
+  --danger:       #dc143c;
+  --success:      #228b22;
+  --radius:       6px;
+  --radius-sm:    3px;
+}
+
+.theme-sakura {
+  --bg-primary:   #2d1f2d;
+  --bg-secondary: #3d2a3d;
+  --bg-tertiary:  #4d354d;
+  --bg-hover:     #5d4560;
+  --border:       #6d5570;
+  --text-primary: #ffe4ec;
+  --text-muted:   #d4a4b4;
+  --text-dim:     #b4849c;
+  --accent:       #ffb7c5;
+  --accent-hover: #ffc8d4;
+  --danger:       #ff6b8a;
+  --success:      #98fb98;
+  --radius:       6px;
+  --radius-sm:    3px;
+}
+
+.theme-midnight {
+  --bg-primary:   #0a0a1a;
+  --bg-secondary: #12122a;
+  --bg-tertiary:  #1a1a3a;
+  --bg-hover:     #222250;
+  --border:       #2a2a60;
+  --text-primary: #e0e0ff;
+  --text-muted:   #a0a0d0;
+  --text-dim:     #7070a0;
+  --accent:       #6366f1;
+  --accent-hover: #818cf8;
+  --danger:       #f43f5e;
+  --success:      #34d399;
+  --radius:       6px;
+  --radius-sm:    3px;
+}
+
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
@@ -316,3 +384,162 @@ input[type="number"] {
 .btn-danger:hover { background: var(--danger); color: #fff; }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ── Account Cards ─────────────────────────────────────────────────────────── */
+.account-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.account-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
+.platform-logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.twitch-logo {
+  background: #9147ff;
+  color: white;
+}
+
+.youtube-logo {
+  background: #ff0000;
+  color: white;
+}
+
+.tiktok-logo {
+  background: linear-gradient(45deg, #ff0050, #00f2ea);
+  color: white;
+}
+
+.platform-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.connection-status {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 99px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.connection-status.connected {
+  background: var(--success);
+  color: white;
+}
+
+.account-body {
+  padding: 14px;
+}
+
+.account-body .setting-group {
+  padding: 0 0 12px 0;
+}
+
+.account-body .setting-group:last-of-type {
+  padding-bottom: 0;
+}
+
+.account-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.btn-account {
+  flex: 1;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.btn-account:hover {
+  background: var(--accent-hover);
+}
+
+.btn-account.danger {
+  background: transparent;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.btn-account.danger:hover {
+  background: var(--danger);
+  color: white;
+}
+
+.btn-icon {
+  font-size: 14px;
+}
+
+.account-description {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+
+/* Utility classes */
+.hidden {
+  display: none !important;
+}
+
+/* ── Toast notifications ─────────────────────────────────────────────────────── */
+.toast {
+  padding: 12px 20px;
+  border-radius: var(--radius);
+  margin-top: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  animation: slideIn 200ms ease;
+}
+
+.toast-success {
+  border-color: var(--success);
+  background: var(--success);
+  color: white;
+}
+
+.toast-error {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: white;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}

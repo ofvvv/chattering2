@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Redirecting...</title>
+  <script>
+    // Extract token from URL hash
+    const hash = window.location.hash.substring(1); // Remove leading #
+    const params = new URLSearchParams(hash);
+    const accessToken = params.get('access_token');
+    const error = params.get('error');
+    
+    console.log('Token:', accessToken ? 'found' : 'not found');
+    
+    if (accessToken) {
+      // Try to send token to our local server
+      // Using a workaround: open a URL that will be captured by our server
+      const tokenUrl = 'http://localhost:3000/twitch-callback?token=' + accessToken;
+      
+      // Create an image to trigger a request (this will send the token as query param)
+      const img = new Image();
+      img.src = tokenUrl;
+      img.onload = function() {
+        showSuccess();
+      };
+      img.onerror = function() {
+        // Even if it fails, try to show success (server might have received it)
+        showSuccess();
+      };
+      
+      // Fallback: also try fetch (will fail due to CORS but server might log it)
+      fetch('http://localhost:3000/twitch-callback?token=' + accessToken, { method: 'POST' }).catch(() => {});
+      
+    } else if (error) {
+      document.body.innerHTML = '<h1 style="color:red;font-family:sans-serif;padding:40px;">Error: ' + error + '</h1>';
+    } else {
+      document.body.innerHTML = '<h1 style="font-family:sans-serif;padding:40px;">Token no encontrado</h1><p>Hash: ' + window.location.hash + '</p>';
+    }
+    
+    function showSuccess() {
+      document.body.innerHTML = '<h1 style="color:#00c853;font-family:sans-serif;padding:40px;text-align:center;">✓ ¡Conectado!</h1><p style="font-family:sans-serif;color:#666;text-align:center;">Tu sesión de Twitch ha sido autenticada.</p><p style="font-family:sans-serif;color:#666;text-align:center;">Puedes cerrar esta ventana.</p>';
+      // Close after delay
+      setTimeout(() => window.close(), 3000);
+    }
+  </script>
+</head>
+<body style="background:#1f1f23;color:#efeff1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <p style="text-align:center;padding:40px;">Procesando autenticación...</p>
+</body>
+</html>

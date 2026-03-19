@@ -14,6 +14,17 @@
    - Toast notifications
    ═══════════════════════════════════════════════════════════════════════════ */
 
+// Global error handler - log all errors to console
+window.onerror = function(msg, url, line, col, error) {
+  console.error('[Chat Error]', msg, 'at line', line, ':', col);
+  if (error && error.stack) console.error('[Stack]', error.stack);
+  return false;
+};
+
+window.onunhandledrejection = function(event) {
+  console.error('[Chat Unhandled Promise Rejection]', event.reason);
+};
+
 // ─── DOM references ──────────────────────────────────────────────────────────
 const $ = (sel, ctx = document) => ctx.querySelector(sel);
 const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
@@ -25,6 +36,7 @@ const chatInput      = $('#chat-input');
 const btnSend        = $('#btn-send');
 const dockEvents     = $('#dock-events');
 const btnClearEvents = $('#btn-clear-events');
+const mainLayout     = $('#main-layout');
 const toastContainer = $('#toast-container');
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -47,19 +59,167 @@ const state = {
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 (async function init() {
-  state.settings = await window.chattering.settings.getAll();
-  applySettings(state.settings);
-  setupTabSwitching();
-  setupConnectButtons();
-  setupChatInput();
-  setupScrollBehaviour();
-  setupDock();
-  setupUserCard();
-  registerPlatformListeners();
-  registerSettingsListener();
-  initTTS();
-  showToast('Chattering listo', 'success');
+  console.log('[Chat] Iniciando...');
+  try {
+    state.settings = await window.chattering.settings.getAll();
+    console.log('[Chat] Settings cargadas:', state.settings.twitchToken ? 'con token' : 'sin token');
+    applySettings(state.settings);
+    setupTabSwitching();
+    setupConnectButtons();
+    setupChatInput();
+    setupScrollBehaviour();
+    setupDock();
+    setupUserCard();
+    registerPlatformListeners();
+    registerSettingsListener();
+    initTTS();
+    showToast('Chattering listo', 'success');
+    setupFilters();
+    checkConnections();
+    
+    console.log('[Chat] Iniciando auto-conexión...');
+    // Auto-connect to Twitch if logged in
+    await autoConnectTwitch();
+    console.log('[Chat] Auto-conexión completada');
+  } catch (err) {
+    console.error('[Chat] Error en init():', err);
+  }
 })();
+
+// Auto-connect to Twitch when user is logged in
+async function autoConnectTwitch() {
+  try {
+    console.log('[Chat] Verificando si hay sesión de Twitch activa...');
+    const userInfo = await window.chattering.twitch.getUser();
+    console.log('[Chat] Info del usuario de Twitch:', userInfo);
+    
+    if (userInfo && userInfo.loggedIn && userInfo.username) {
+      console.log('[Chat] Usuario conectado, intentando auto-conectar a:', userInfo.username);
+      
+      // Auto-connect to the user's own channel
+      const res = await window.chattering.twitch.connect(userInfo.username, null);
+      console.log('[Chat] Auto-conexión resultado:', res);
+      
+      if (res && res.connected) {
+        state.connectedChannels.twitch = userInfo.username;
+        addSystemMessage(`Conectado automáticamente a #${userInfo.username} (Twitch)`, 'twitch');
+        loadEmotes('twitch', res.userId || userInfo.username);
+        chatInput.placeholder = `Escribe un mensaje en #${userInfo.username}…`;
+        
+        // Hide no-connections popup
+        const popup = $('#no-connections-popup');
+        popup?.classList.add('hidden');
+      }
+    } else {
+      console.log('[Chat] No hay sesión de Twitch activa');
+    }
+  } catch (err) {
+    console.error('[Chat] Error en auto-conexión:', err);
+  }
+}
+
+// ─── Check for connections and show popup ───────────────────────────────────
+function checkConnections() {
+  const popup = $('#no-connections-popup');
+  const btnOpenSettings = $('#btn-open-settings-from-popup');
+  
+  // Check if any platform is configured in settings
+  const hasConnections = state.settings.twitchChannel || 
+                        state.settings.youtubeChannel || 
+                        state.settings.tiktokUser;
+  
+  if (!hasConnections && popup) {
+    popup.classList.remove('hidden');
+  }
+  
+  btnOpenSettings?.addEventListener('click', () => {
+    window.chattering.settings.open();
+    popup.classList.add('hidden');
+  });
+  
+  // Hide popup when connected to any platform
+  window.chattering.twitch.onStatus((data) => {
+    if (data.connected) popup?.classList.add('hidden');
+  });
+  window.chattering.tiktok.onStatus((data) => {
+    if (data.connected) popup?.classList.add('hidden');
+  });
+  window.chattering.youtube.onStatus((data) => {
+    if (data.connected) popup?.classList.add('hidden');
+  });
+}
+
+// ─── Filters ────────────────────────────────────────────────────────────────────
+function setupFilters() {
+  const btnFilters = $('#btn-filters');
+  const dropdown = $('#filters-dropdown');
+  const filterPlatform = $('#filter-platform');
+  const filterType = $('#filter-type');
+  const filterSubs = $('#filter-subs');
+  const filterMods = $('#filter-mods');
+  const btnApply = $('#btn-apply-filters');
+  
+  // Toggle dropdown
+  btnFilters?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dropdown.classList.toggle('hidden');
+  });
+  
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!dropdown.contains(e.target) && e.target !== btnFilters) {
+      dropdown.classList.add('hidden');
+    }
+  });
+  
+  // Apply filters
+  btnApply?.addEventListener('click', () => {
+    const filters = {
+      platform: filterPlatform?.value || 'all',
+      type: filterType?.value || 'all',
+      subsOnly: filterSubs?.checked || false,
+      showMods: filterMods?.checked !== false
+    };
+    
+    state.settings.filters = filters;
+    window.chattering.settings.set({ filters });
+    applyFilters(filters);
+    dropdown.classList.add('hidden');
+    showToast('Filtros aplicados', 'success');
+  });
+  
+  // Load saved filters
+  if (state.settings.filters) {
+    filterPlatform.value = state.settings.filters.platform || 'all';
+    filterType.value = state.settings.filters.type || 'all';
+    if (filterSubs) filterSubs.checked = state.settings.filters.subsOnly || false;
+    if (filterMods) filterMods.checked = state.settings.filters.showMods !== false;
+    applyFilters(state.settings.filters);
+  }
+}
+
+function applyFilters(filters) {
+  const messages = $$('.chat-message');
+  messages.forEach(msg => {
+    let show = true;
+    
+    // Platform filter
+    if (filters.platform && filters.platform !== 'all') {
+      if (!msg.classList.contains(`platform-${filters.platform}`)) {
+        show = false;
+      }
+    }
+    
+    // Type filter (events vs chat)
+    if (filters.type && filters.type !== 'all') {
+      const isEvent = msg.classList.contains('system') || msg.classList.contains('event-item');
+      if (filters.type === 'chat' && isEvent) show = false;
+      if (filters.type === 'events' && !isEvent) show = false;
+    }
+    
+    msg.classList.toggle('hidden', !show);
+  });
+}
 
 // ─── Platform tab switching ───────────────────────────────────────────────────
 function setupTabSwitching() {
@@ -77,7 +237,24 @@ function setupTabSwitching() {
 
 // ─── Connect buttons ──────────────────────────────────────────────────────────
 function setupConnectButtons() {
-  // Twitch
+  // Twitch OAuth
+  $('#btn-twitch-oauth')?.addEventListener('click', () => {
+    const clientId = state.settings.twitchClientId || 'w2q6ngvevmf1gkuu1ngiqwmyzqmjrt';
+    window.chattering.twitch.openOAuth(clientId);
+  });
+  
+  // Listen for OAuth token capture
+  window.chattering.twitch.onOAuthCaptured((data) => {
+    if (data?.token) {
+      state.settings.twitchToken = data.token;
+      showToast('Sesión de Twitch iniciada', 'success');
+      // Update the token input field
+      const tokenInput = $('#input-twitch-token');
+      if (tokenInput) tokenInput.value = data.token;
+    }
+  });
+  
+  // TikTok login
   $('#btn-tiktok-login')?.addEventListener('click', () => {
     window.chattering.tiktok.openAuthWindow();
   });
@@ -105,10 +282,15 @@ async function connectPlatform(platform) {
 
   try {
     if (platform === 'twitch') {
-      const channel = $('#input-twitch-channel').value.trim().replace(/^#/, '');
-      const token   = $('#input-twitch-token').value.trim();
+      const channelInput = $('#input-twitch-channel');
+      const tokenInput = $('#input-twitch-token');
+      if (!channelInput) return showToast('Error: input de Twitch no encontrado', 'error');
+      const channel = (channelInput.value || '').trim().replace(/^#/, '');
+      const token = tokenInput ? (tokenInput.value || '').trim() : '';
       if (!channel) return showToast('Escribe un canal de Twitch', 'warning');
+      console.log('[Chat] Conectando a Twitch, canal:', channel, 'token:', token ? 'presente' : 'ausente');
       const res = await window.chattering.twitch.connect(channel, token || null);
+      console.log('[Chat] Resultado de conexión Twitch:', res);
       if (res.error) throw new Error(res.error);
       state.connectedChannels.twitch = channel;
       addSystemMessage(`Conectado a #${channel} (Twitch)`, 'twitch');
@@ -117,16 +299,27 @@ async function connectPlatform(platform) {
       chatInput.placeholder = `Escribe un mensaje en #${channel}…`;
 
     } else if (platform === 'tiktok') {
-      const username = $('#input-tiktok-user').value.trim().replace(/^@/, '');
+      const tiktokInput = $('#input-tiktok-user');
+      if (!tiktokInput) return showToast('Error: input de TikTok no encontrado', 'error');
+      const username = (tiktokInput.value || '').trim().replace(/^@/, '');
       if (!username) return showToast('Escribe un usuario de TikTok', 'warning');
-      const res = await window.chattering.tiktok.connect(username);
+      
+      // Extract sessionId from cookies if available
+      let sessionId = null;
+      if (state.tiktokCookies) {
+        sessionId = state.tiktokCookies.sessionid || state.tiktokCookies.sessionid_ss || null;
+      }
+      
+      const res = await window.chattering.tiktok.connect(username, sessionId);
       if (res.error) throw new Error(res.error);
       state.connectedChannels.tiktok = username;
       addSystemMessage(`Conectado a @${username} (TikTok)`, 'tiktok');
       loadEmotes('tiktok', username);
 
     } else if (platform === 'youtube') {
-      const handle = $('#input-yt-handle').value.trim();
+      const ytInput = $('#input-yt-handle');
+      if (!ytInput) return showToast('Error: input de YouTube no encontrado', 'error');
+      const handle = (ytInput.value || '').trim();
       if (!handle) return showToast('Escribe un canal de YouTube', 'warning');
       const res = await window.chattering.youtube.connect(handle);
       if (res.error) throw new Error(res.error);
@@ -143,6 +336,7 @@ async function connectPlatform(platform) {
 function registerPlatformListeners() {
   // Twitch
   window.chattering.twitch.onMessage(data => {
+    console.log('[Chat Renderer] Mensaje de Twitch recibido:', data);
     appendChatMessage({ platform: 'twitch', ...data });
     maybeSpeak(data);
   });
@@ -157,6 +351,8 @@ function registerPlatformListeners() {
   // TikTok cookies
   window.chattering.tiktok.onCookiesCaptured(cookies => {
     state.tiktokCookies = cookies;
+    // Send cookies to main process for the connector
+    window.chattering.tiktok.setCookies(cookies);
     showToast('Sesión TikTok capturada', 'success');
   });
   window.chattering.tiktok.onMessage(data => {
@@ -184,85 +380,90 @@ function registerPlatformListeners() {
 
 // ─── Append a chat message ────────────────────────────────────────────────────
 function appendChatMessage(msg) {
-  const {
-    platform, id, username, displayName, color,
-    message, badges = [], emotes = {}, isAction = false,
-    bits, deleted = false, highlighted = false
-  } = msg;
+  try {
+    console.log('[Chat Renderer] appendChatMessage llamado con:', msg);
+    const {
+      platform, id, username, displayName, color,
+      message, badges = [], emotes = {}, isAction = false,
+      bits, deleted = false, highlighted = false
+    } = msg;
 
-  // Track per-user count
-  state.sessionMsgCount[username] = (state.sessionMsgCount[username] || 0) + 1;
+    // Track per-user count
+    state.sessionMsgCount[username] = (state.sessionMsgCount[username] || 0) + 1;
 
-  const row = document.createElement('div');
-  row.className = `chat-message platform-${platform}`;
-  row.dataset.id = id || '';
-  row.dataset.user = username;
-  if (isAction)    row.classList.add('action');
-  if (deleted)     row.classList.add('deleted');
-  if (highlighted) row.classList.add('highlighted');
-  if (bits)        row.classList.add('bits');
+    const row = document.createElement('div');
+    row.className = `chat-message platform-${platform}`;
+    row.dataset.id = id || '';
+    row.dataset.user = username;
+    if (isAction)    row.classList.add('action');
+    if (deleted)     row.classList.add('deleted');
+    if (highlighted) row.classList.add('highlighted');
+    if (bits)        row.classList.add('bits');
 
-  // Platform dot
-  const dot = document.createElement('span');
-  dot.className = 'msg-platform-dot';
-  row.appendChild(dot);
+    // Platform dot
+    const dot = document.createElement('span');
+    dot.className = 'msg-platform-dot';
+    row.appendChild(dot);
 
-  // Timestamp (if enabled)
-  if (state.settings.showTimestamps) {
-    const ts = document.createElement('span');
-    ts.className = 'msg-timestamp';
-    ts.textContent = new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
-    row.appendChild(ts);
-  }
+    // Timestamp (if enabled)
+    if (state.settings.showTimestamps) {
+      const ts = document.createElement('span');
+      ts.className = 'msg-timestamp';
+      ts.textContent = new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+      row.appendChild(ts);
+    }
 
-  // Badges
-  if (badges.length) {
-    const badgeWrap = document.createElement('span');
-    badgeWrap.className = 'msg-badges';
-    badges.forEach(b => {
-      const img = document.createElement('img');
-      img.className = 'badge';
-      img.src = b.url || '';
-      img.alt = b.title || '';
-      img.title = b.title || '';
-      badgeWrap.appendChild(img);
+    // Badges
+    if (badges.length) {
+      const badgeWrap = document.createElement('span');
+      badgeWrap.className = 'msg-badges';
+      badges.forEach(b => {
+        const img = document.createElement('img');
+        img.className = 'badge';
+        img.src = b.url || '';
+        img.alt = b.title || '';
+        img.title = b.title || '';
+        badgeWrap.appendChild(img);
+      });
+      row.appendChild(badgeWrap);
+    }
+
+    // Author
+    const author = document.createElement('span');
+    author.className = 'msg-author';
+    author.style.color = color || getPlatformColor(platform);
+    author.textContent = displayName || username;
+    author.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (platform === 'twitch') openUserCard(username, displayName, color, badges);
     });
-    row.appendChild(badgeWrap);
-  }
+    row.appendChild(author);
 
-  // Author
-  const author = document.createElement('span');
-  author.className = 'msg-author';
-  author.style.color = color || getPlatformColor(platform);
-  author.textContent = displayName || username;
-  author.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (platform === 'twitch') openUserCard(username, displayName, color, badges);
-  });
-  row.appendChild(author);
+    const sep = document.createElement('span');
+    sep.className = 'msg-sep';
+    sep.textContent = isAction ? '' : ':';
+    row.appendChild(sep);
 
-  const sep = document.createElement('span');
-  sep.className = 'msg-sep';
-  sep.textContent = isAction ? '' : ':';
-  row.appendChild(sep);
+    // Message content with emotes
+    const content = document.createElement('span');
+    content.className = 'msg-content';
+    content.appendChild(renderMessageContent(message, emotes, bits));
+    row.appendChild(content);
 
-  // Message content with emotes
-  const content = document.createElement('span');
-  content.className = 'msg-content';
-  content.appendChild(renderMessageContent(message, emotes, bits));
-  row.appendChild(content);
+    // Apply chat filter if active
+    if (shouldFilterMessage(msg)) return;
 
-  // Apply chat filter if active
-  if (shouldFilterMessage(msg)) return;
+    chatMessages.appendChild(row);
+    trimMessageList();
 
-  chatMessages.appendChild(row);
-  trimMessageList();
-
-  if (!state.isScrollPaused) {
-    scrollToBottom();
-  } else {
-    state.pendingCount++;
-    updateNewMessagesButton();
+    if (!state.isScrollPaused) {
+      scrollToBottom();
+    } else {
+      state.pendingCount++;
+      updateNewMessagesButton();
+    }
+  } catch (err) {
+    console.error('[Chat Renderer] Error en appendChatMessage:', err);
   }
 }
 
@@ -318,6 +519,7 @@ function renderTextChunk(text) {
 
   words.forEach((word, i) => {
     if (state.emoteCache[word]) {
+      console.log('[Chat] Renderizando emote:', word);
       const img = document.createElement('img');
       img.className = 'emote';
       img.src = state.emoteCache[word].url;
@@ -340,7 +542,10 @@ function renderTextChunk(text) {
 async function loadEmotes(platform, channelId) {
   try {
     const cache = await window.chattering.emotes.loadForChannel(platform, channelId);
+    console.log('[Chat] Emotes cargados para', platform, channelId, '- total en cache:', Object.keys(cache).length);
+    console.log('[Chat] Primeros 10 emotes:', Object.keys(cache).slice(0, 10));
     Object.assign(state.emoteCache, cache);
+    console.log('[Chat] EmoteCache ahora tiene:', Object.keys(state.emoteCache).length, 'emotes');
   } catch (e) {
     console.warn('[Chattering] Error cargando emotes:', e);
   }
@@ -428,9 +633,219 @@ async function sendChatMessage() {
 
 // ─── Events dock ─────────────────────────────────────────────────────────────
 function setupDock() {
-  btnClearEvents.addEventListener('click', () => {
-    dockEvents.innerHTML = '';
+  // Dock position controls
+  const dock = $('#events-dock');
+  const btnDockTop = $('#btn-dock-top');
+  const btnDockLeft = $('#btn-dock-left');
+  const btnDockRight = $('#btn-dock-right');
+  const btnDockBottom = $('#btn-dock-bottom');
+  const btnDockFloat = $('#btn-dock-float');
+  
+  let isFloating = false;
+  let isDragging = false;
+  let dragOffset = { x: 0, y: 0 };
+  
+  function setDockPosition(pos) {
+    if (!dock) return; // Si no hay dock, no hacemos nada
+    
+    // Remove all position classes
+    dock.classList.remove('dock-top', 'dock-bottom', 'dock-left', 'dock-right', 'dock-float');
+    
+    // Show/hide float button based on state
+    if (btnDockFloat) {
+      btnDockFloat.style.display = ''; // Reset to default
+    }
+    
+    if (pos === 'float') {
+      isFloating = true;
+      dock.classList.add('dock-float');
+      btnDockFloat?.classList.add('active');
+      [btnDockTop, btnDockLeft, btnDockRight, btnDockBottom].forEach(btn => btn?.classList.remove('active'));
+    } else {
+      isFloating = false;
+      dock.classList.add(`dock-${pos}`);
+      btnDockFloat?.classList.remove('active');
+      // Hide float button when docked
+      if (btnDockFloat) {
+        btnDockFloat.style.display = 'none';
+      }
+      
+      // Update button states
+      [btnDockTop, btnDockLeft, btnDockRight, btnDockBottom].forEach(btn => btn?.classList.remove('active'));
+      
+      switch(pos) {
+        case 'top': btnDockTop?.classList.add('active'); break;
+        case 'left': btnDockLeft?.classList.add('active'); break;
+        case 'right': btnDockRight?.classList.add('active'); break;
+        case 'bottom': btnDockBottom?.classList.add('active'); break;
+      }
+    }
+    
+    // Update main-layout class for horizontal dock (top/bottom)
+    if (mainLayout) {
+      if (pos === 'top' || pos === 'bottom') {
+        mainLayout.classList.add('dock-horizontal');
+      } else {
+        mainLayout.classList.remove('dock-horizontal');
+      }
+    }
+    
+    // Save preference
+    state.settings.dockPosition = pos;
+    if (window.chattering?.settings) {
+      window.chattering.settings.set({ dockPosition: pos });
+    }
+  }
+  
+  // Float button - toggle floating mode
+  btnDockFloat?.addEventListener('click', () => {
+    if (isFloating) {
+      // Return to last docked position or default to top
+      const lastPos = state.settings.dockPosition || 'top';
+      if (lastPos === 'float') {
+        setDockPosition('top');
+      } else {
+        setDockPosition(lastPos);
+      }
+    } else {
+      // Open dock in separate window
+      window.chattering?.dock?.openFloat();
+      // Hide the dock in chat window (it will be in separate window)
+      if (dock) {
+        dock.style.display = 'none';
+      }
+    }
   });
+  
+  // Listen for dock window closed (user closed the floating dock window)
+  if (window.chattering?._onDockClosed) {
+    window.chattering._onDockClosed(() => {
+      console.log('[Chat] Dock window closed, returning to docked mode');
+      // Return to last docked position
+      const lastPos = state.settings.dockPosition || 'top';
+      if (lastPos === 'float') {
+        setDockPosition('top');
+      } else {
+        setDockPosition(lastPos);
+      }
+    });
+  }
+  
+  // Drag functionality for floating dock
+  const dockHeader = $('#dock-header');
+  
+  dockHeader?.addEventListener('mousedown', (e) => {
+    if (!isFloating || !dock) return;
+    if (e.target.closest('button')) return; // Don't drag if clicking buttons
+    
+    isDragging = true;
+    const rect = dock.getBoundingClientRect();
+    dragOffset.x = e.clientX - rect.left;
+    dragOffset.y = e.clientY - rect.top;
+    dock.style.transition = 'none';
+  });
+  
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging || !dock) return;
+    
+    const x = e.clientX - dragOffset.x;
+    const y = e.clientY - dragOffset.y;
+    dock.style.left = x + 'px';
+    dock.style.top = y + 'px';
+    dock.style.transform = 'none';
+  });
+  
+  document.addEventListener('mouseup', () => {
+    isDragging = false;
+    if (dock) dock.style.transition = '';
+  });
+  
+  // Resize functionality
+  const resizeHandle = $('#dock-resize-handle');
+  let isResizing = false;
+  let startSize = { width: 0, height: 0, x: 0, y: 0 };
+  
+  resizeHandle?.addEventListener('mousedown', (e) => {
+    if (!dock) return;
+    isResizing = true;
+    startSize.width = dock.offsetWidth;
+    startSize.height = dock.offsetHeight;
+    startSize.x = e.clientX;
+    startSize.y = e.clientY;
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing || !dock) return;
+    
+    const deltaX = e.clientX - startSize.x;
+    const deltaY = e.clientY - startSize.y;
+    
+    // Get current position class
+    const currentPos = [...dock.classList].find(c => c.startsWith('dock-'));
+    
+    if (currentPos === 'dock-top') {
+      // Dragging down increases height
+      const newHeight = Math.max(100, Math.min(600, startSize.height + deltaY));
+      dock.style.height = newHeight + 'px';
+    } else if (currentPos === 'dock-bottom') {
+      // Dragging UP increases height (inverted)
+      const newHeight = Math.max(100, Math.min(600, startSize.height - deltaY));
+      dock.style.height = newHeight + 'px';
+    } else if (currentPos === 'dock-left') {
+      // Dragging right increases width
+      const newWidth = Math.max(100, Math.min(400, startSize.width + deltaX));
+      dock.style.width = newWidth + 'px';
+    } else if (currentPos === 'dock-right') {
+      // Dragging LEFT increases width (inverted)
+      const newWidth = Math.max(100, Math.min(400, startSize.width - deltaX));
+      dock.style.width = newWidth + 'px';
+    } else if (currentPos === 'dock-float') {
+      // Resize both
+      const newWidth = Math.max(200, Math.min(600, startSize.width + deltaX));
+      const newHeight = Math.max(150, Math.min(800, startSize.height + deltaY));
+      dock.style.width = newWidth + 'px';
+      dock.style.height = newHeight + 'px';
+    }
+  });
+  
+  document.addEventListener('mouseup', () => {
+    isResizing = false;
+  });
+  
+  btnDockTop?.addEventListener('click', () => setDockPosition('top'));
+  btnDockLeft?.addEventListener('click', () => setDockPosition('left'));
+  btnDockRight?.addEventListener('click', () => setDockPosition('right'));
+  btnDockBottom?.addEventListener('click', () => setDockPosition('bottom'));
+  
+  // Clear events - sync with dock window
+  btnClearEvents?.addEventListener('click', () => {
+    if (dockEvents) dockEvents.innerHTML = '';
+    window.chattering?.dock?.clearEvents();
+  });
+  
+  // Listen for dock position changed from dock window
+  if (window.chattering?._onDockClosed) {
+    window.chattering._onDockClosed(() => {
+      console.log('[Chat] Dock window closed, returning to docked mode');
+      // Return to last docked position
+      const lastPos = state.settings.dockPosition || 'top';
+      if (lastPos === 'float') {
+        setDockPosition('top');
+      } else {
+        setDockPosition(lastPos);
+      }
+    });
+  }
+  
+  // Load saved position
+  if (state.settings.dockPosition) {
+    setDockPosition(state.settings.dockPosition);
+  } else {
+    // Default to top
+    setDockPosition('top');
+  }
 }
 
 function appendDockEvent(evt) {
@@ -470,6 +885,13 @@ function appendDockEvent(evt) {
   while (dockEvents.children.length > 100) {
     dockEvents.removeChild(dockEvents.lastChild);
   }
+
+  // Send event to floating dock window if open
+  window.chattering?.dock?.addEvent({
+    type,
+    message: `${displayName || username || 'Anónimo'}: ${buildEventDescription(type, amount, months, message)}`,
+    time: new Date().toLocaleTimeString()
+  });
 
   // Flash alert if enabled
   if (state.settings.alertsEnabled) flashAlert(item);
@@ -597,9 +1019,9 @@ function registerSettingsListener() {
 function applySettings(s) {
   const body = document.body;
 
-  // Theme
-  body.classList.remove('theme-dark', 'theme-light');
-  body.classList.add(s.theme === 'light' ? 'theme-light' : 'theme-dark');
+  // Theme - support all themes
+  body.classList.remove('theme-dark', 'theme-light', 'theme-gray', 'theme-lightgray', 'theme-sakura', 'theme-midnight');
+  body.classList.add(`theme-${s.theme || 'dark'}`);
 
   // Translucent
   body.classList.toggle('translucent', !!s.translucent);
@@ -624,11 +1046,13 @@ function applySettings(s) {
 // ─── Chat filter ──────────────────────────────────────────────────────────────
 function shouldFilterMessage(msg) {
   const { settings } = state;
-  // Filter by platform
-  if (settings.filterPlatform && settings.filterPlatform !== 'all') {
-    if (msg.platform !== settings.filterPlatform) return true;
+  
+  // Filtrar por plataforma (CORREGIDO)
+  if (settings.filters && settings.filters.platform && settings.filters.platform !== 'all') {
+    if (msg.platform !== settings.filters.platform) return true;
   }
-  // Filter bot messages
+  
+  // Filtrar bots
   const botList = (settings.botList || '').split(',').map(b => b.trim().toLowerCase()).filter(Boolean);
   if (botList.includes((msg.username || '').toLowerCase())) return true;
 
@@ -636,14 +1060,19 @@ function shouldFilterMessage(msg) {
 }
 
 // ─── TTS ─────────────────────────────────────────────────────────────────────
+// Store available voices for variation
+let availableVoices = [];
+
 function initTTS() {
   if (!('speechSynthesis' in window)) return;
   // Pre-load voices
   window.speechSynthesis.getVoices();
   window.speechSynthesis.addEventListener('voiceschanged', () => {
-    const voices = window.speechSynthesis.getVoices();
-    state.ttsVoice = voices.find(v => v.lang.startsWith('es')) || voices[0] || null;
+    availableVoices = window.speechSynthesis.getVoices();
+    state.ttsVoice = availableVoices.find(v => v.lang.startsWith('es')) || availableVoices[0] || null;
   });
+  // Initial load
+  availableVoices = window.speechSynthesis.getVoices();
 }
 
 function maybeSpeak(msg) {
@@ -659,15 +1088,39 @@ function ttsEnqueue(text) {
   if (!state.ttsBusy) ttsProcessQueue();
 }
 
+// Counter for voice variation
+let ttsMessageCount = 0;
+
 function ttsProcessQueue() {
   if (!state.ttsQueue.length) { state.ttsBusy = false; return; }
   state.ttsBusy = true;
   const text = state.ttsQueue.shift();
   const utt = new SpeechSynthesisUtterance(text);
-  if (state.ttsVoice) utt.voice = state.ttsVoice;
-  utt.rate  = state.settings.ttsRate  || 1;
-  utt.pitch = state.settings.ttsPitch || 1;
+  
+  // Select voice with variation - cycle through available voices
+  if (availableVoices.length > 0) {
+    ttsMessageCount++;
+    // Select different voice every 3 messages for variety
+    const voiceIndex = ttsMessageCount % Math.min(availableVoices.length, 3);
+    const preferredVoices = availableVoices.filter(v => v.lang.startsWith('es') || v.lang.startsWith('en'));
+    if (preferredVoices.length > 0) {
+      utt.voice = preferredVoices[(ttsMessageCount + voiceIndex) % preferredVoices.length];
+    } else {
+      utt.voice = availableVoices[voiceIndex];
+    }
+  } else if (state.ttsVoice) {
+    utt.voice = state.ttsVoice;
+  }
+  
+  // Base settings from user
+  const baseRate = state.settings.ttsRate || 1;
+  const basePitch = state.settings.ttsPitch || 1;
+  
+  // Add slight variation to rate and pitch for variety (±10%)
+  utt.rate = baseRate * (0.9 + Math.random() * 0.2);
+  utt.pitch = basePitch * (0.95 + Math.random() * 0.1);
   utt.volume = state.settings.ttsVolume || 1;
+  
   utt.onend = () => ttsProcessQueue();
   utt.onerror = () => ttsProcessQueue();
   window.speechSynthesis.speak(utt);
@@ -702,12 +1155,63 @@ function getPlatformColor(platform) {
 }
 
 // ─── Window controls (titlebar) ───────────────────────────────────────────────
-$('#btn-minimize').addEventListener('click', () => window.chattering.window.minimize());
-$('#btn-maximize').addEventListener('click', () => window.chattering.window.maximize());
-$('#btn-close').addEventListener('click',    () => window.chattering.window.close());
-$('#btn-settings').addEventListener('click', () => window.chattering.settings.open());
+// Prevent drag region from capturing clicks - use a small delay to distinguish click vs drag
+const titlebarDrag = $('#titlebar-drag');
+let isDragging = false;
+let startX = 0;
+let startY = 0;
+
+if (titlebarDrag) {
+  titlebarDrag.addEventListener('mousedown', (e) => {
+    isDragging = false;
+    startX = e.screenX;
+    startY = e.screenY;
+  });
+  
+  titlebarDrag.addEventListener('mousemove', (e) => {
+    const dx = Math.abs(e.screenX - startX);
+    const dy = Math.abs(e.screenY - startY);
+    if (dx > 5 || dy > 5) {
+      isDragging = true;
+    }
+  });
+  
+  titlebarDrag.addEventListener('click', (e) => {
+    // Only allow native click behavior if not dragging
+    if (!isDragging) {
+      e.stopPropagation();
+    }
+  });
+}
+
+$('#btn-minimize').addEventListener('click', (e) => {
+  e.stopPropagation();
+  window.chattering.window.minimize();
+});
+$('#btn-maximize').addEventListener('click', (e) => {
+  e.stopPropagation();
+  window.chattering.window.maximize();
+});
+$('#btn-close').addEventListener('click', (e) => {
+  e.stopPropagation();
+  window.chattering.window.close();
+});
+$('#btn-settings').addEventListener('click', (e) => {
+  e.stopPropagation();
+  window.chattering.settings.open();
+});
 
 // ─── Live settings refresh ────────────────────────────────────────────────────
 // Main process broadcasts 'settings:updated' whenever settings change.
 // The preload forwards this via _onSettingsUpdated.
 window.chattering._onSettingsUpdated(newSettings => applySettings(newSettings));
+
+// ─── Dock events sync ────────────────────────────────────────────────────────
+// Listen for clear events from dock window
+if (window.chattering?._onDockClear) {
+  window.chattering._onDockClear(() => {
+    if (dockEvents) {
+      dockEvents.innerHTML = '';
+    }
+  });
+}

@@ -3,268 +3,240 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    Chattering – YouTube Live Chat Connector
    ─────────────────────────────────────────────────────────────────────────
-   Strategy (no API key required):
-   1. Fetch the channel's /live page via HTTPS (scrape initial data).
-   2. Extract the liveChatRenderer continuation token from ytInitialData.
-   3. Poll /youtubei/v1/live_chat/get_live_chat with the continuation token.
-   All requests mimic a regular browser to avoid 403s.
+   Uses youtube-chat library to connect to YouTube Live streams.
+   Handles both channel IDs and @handles.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-// ─── State ───────────────────────────────────────────────────────────────────
-let pollTimer     = null;
-let continuation  = null;
-let activeChannel = null;
-let getMainWindow = null;
-let isRunning     = false;
+const { LiveChat } = require('youtube-chat');
+const https = require('https');
+const http = require('http');
 
-const POLL_INTERVAL_MS = 5000;
+// ─── State ───────────────────────────────────────────────────────────────────
+let chat = null;
+let activeChannel = null;
+let activeChannelId = null;
+let getMainWindow = null;
+let isRunning = false;
+
 const YT_BASE = 'https://www.youtube.com';
+
+// ─── Helper: Resolve handle to channel ID ─────────────────────────────────
+function resolveChannelId(handleOrId) {
+  return new Promise((resolve, reject) => {
+    const input = handleOrId.replace(/^@/, '').trim();
+    
+    // Check if it looks like a channel ID (starts with UC)
+    if (input.startsWith('UC')) {
+      resolve(input);
+      return;
+    }
+    
+    // Try to fetch the channel page to get the channel ID
+    const url = `https://www.youtube.com/@${input}`;
+    console.log(`[YouTube] Resolving handle @${input} to channel ID...`);
+    
+    const protocol = url.startsWith('https') ? https : http;
+    
+    protocol.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5'
+      }
+    }, (res) => {
+      let data = '';
+      
+      res.on('data', (chunk) => {
+        data += chunk;
+        // Process in chunks to find channel ID faster
+        if (data.length > 100000) {
+          res.destroy();
+        }
+      });
+      
+      res.on('end', () => {
+        // Try to find channel ID in the page source
+        // Pattern: "channelId":"UCxxxxx" or channelId:"UCxxxxx"
+        const channelIdMatch = data.match(/"channelId":"(UC[a-zA-Z0-9_-]{20,})"/) || 
+                               data.match(/channelId="(UC[a-zA-Z0-9_-]{20,})"/);
+        
+        if (channelIdMatch && channelIdMatch[1]) {
+          console.log(`[YouTube] Resolved @${input} to channel ID: ${channelIdMatch[1]}`);
+          resolve(channelIdMatch[1]);
+        } else {
+          // Try alternate pattern - maybe it's a username not a handle
+          const altMatch = data.match(/"canonicalBaseUrl"\s*:\s*"\/@([^"]+)"/);
+          if (altMatch) {
+            // It's a valid handle, try the channel endpoint
+            const channelUrl = `https://www.youtube.com/channel/${input}/live`;
+            console.log(`[YouTube] Trying channel URL: ${channelUrl}`);
+            resolve(input); // Return the input as-is, youtube-chat will handle it
+          } else {
+            reject(new Error(`Could not resolve channel ID for @${input}`));
+          }
+        }
+      });
+    }).on('error', (err) => {
+      reject(err);
+    });
+  });
+}
 
 // ─── Connect ─────────────────────────────────────────────────────────────────
 async function connect(channelHandle, getWin) {
   if (isRunning) await disconnect();
   getMainWindow = getWin;
-  activeChannel = channelHandle;
+  
+  // Normalize the channel handle - remove @ prefix
+  let channelName = channelHandle.replace(/^@/, '').trim();
+  activeChannel = channelName;
   isRunning = true;
 
-  emitStatus(false, 'Buscando stream activo…');
+  emitStatus(false, 'Conectando a YouTube…');
 
   try {
-    continuation = await findLiveChatContinuation(channelHandle);
-    if (!continuation) throw new Error('No se encontró ningún live activo en este canal.');
+    console.log(`[YouTube] Attempting to connect to channel: ${channelName}`);
+    
+    // Resolve handle to channel ID if needed
+    let channelId = channelName;
+    try {
+      channelId = await resolveChannelId(channelName);
+      activeChannelId = channelId;
+    } catch (resolveErr) {
+      console.log(`[YouTube] Could not resolve handle, trying as-is: ${resolveErr.message}`);
+      channelId = channelName;
+    }
+    
+    console.log(`[YouTube] Using channel ID: ${channelId}`);
+    
+    chat = new LiveChat({
+      channelId: channelId,  // Use resolved channel ID
+      lookupInterval: 5000,   // Poll every 5 seconds
+      liveChat: true
+    });
 
-    emitStatus(true);
-    schedulePoll();
-    return { connected: true };
+    chat.on('start', (videoId, videoTitle) => {
+      console.log(`[YouTube] Live stream started: ${videoTitle} (${videoId})`);
+      emitStatus(true, videoTitle);
+    });
+
+    chat.on('chat', (chatItem) => {
+      // Parse message author
+      const author = chatItem.author;
+      const username = author.name || 'Unknown';
+      const color = author.nameColor ? `#${author.nameColor.replace('#', '')}` : '#ff0000';
+      
+      // Build message object
+      const message = {
+        id: chatItem.id || String(Date.now()),
+        platform: 'youtube',
+        username: username,
+        displayName: username,
+        color: color,
+        message: chatItem.message || '',
+        badges: [],
+        emotes: {},
+        avatarUrl: author.thumbnail?.url || '',
+        isMember: author.isMember || false,
+        isModerator: author.isModerator || false,
+        isVerified: author.isVerified || false,
+        isOwner: author.isOwner || false,
+        isSponsor: author.isSponsor || false
+      };
+      
+      emit('youtube:message', message);
+    });
+
+    chat.on('superChat', (sc) => {
+      // Handle Super Chat events
+      const message = {
+        id: sc.id || String(Date.now()),
+        platform: 'youtube',
+        username: sc.author?.name || 'Unknown',
+        displayName: sc.author?.name || 'Unknown',
+        color: '#ffff00',
+        message: sc.message || '',
+        badges: [],
+        emotes: {},
+        amount: sc.amount || '',
+        currency: sc.currency || ''
+      };
+      
+      emit('youtube:event', {
+        type: 'superchat',
+        platform: 'youtube',
+        username: message.username,
+        displayName: message.displayName,
+        amount: message.amount,
+        currency: message.currency,
+        message: message.message
+      });
+    });
+
+    chat.on('membership', (m) => {
+      // Handle membership/join events
+      emit('youtube:event', {
+        type: 'member',
+        platform: 'youtube',
+        username: m.author?.name || 'Unknown',
+        displayName: m.author?.name || 'Unknown',
+        message: m.message || 'se unió'
+      });
+    });
+
+    chat.on('error', (err) => {
+      console.error('[YouTube] Error:', err);
+      // Don't emit error status if it's just "no live"
+      if (!err.message.includes('No live') && !err.message.includes('not found')) {
+        emitStatus(false, 'Error: ' + err.message);
+      }
+    });
+
+    chat.on('end', () => {
+      console.log('[YouTube] Stream ended');
+      emitStatus(false, 'Stream terminado');
+    });
+
+    // Start listening
+    await chat.start();
+    
+    console.log(`[YouTube] Connected to ${activeChannel}`);
+    return { connected: true, channel: activeChannel };
+    
   } catch (err) {
     isRunning = false;
-    throw err;
+    console.error('[YouTube] Connection failed:', err.message);
+    throw new Error(`YouTube connect failed: ${err.message}`);
   }
 }
 
 // ─── Disconnect ───────────────────────────────────────────────────────────────
 async function disconnect() {
   isRunning = false;
-  if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
-  continuation  = null;
+  
+  if (chat) {
+    try {
+      chat.stop();
+    } catch (e) {
+      console.log('[YouTube] Stop error:', e.message);
+    }
+    chat = null;
+  }
+  
   activeChannel = null;
+  activeChannelId = null;
   emitStatus(false);
-}
-
-// ─── Find the live chat continuation token ────────────────────────────────────
-async function findLiveChatContinuation(channelHandle) {
-  // Normalise: could be @handle, channel/UC..., or a full URL
-  let url;
-  if (channelHandle.startsWith('http')) {
-    url = channelHandle;
-  } else if (channelHandle.startsWith('UC') || channelHandle.startsWith('HC')) {
-    url = `${YT_BASE}/channel/${channelHandle}/live`;
-  } else {
-    const handle = channelHandle.startsWith('@') ? channelHandle : `@${channelHandle}`;
-    url = `${YT_BASE}/${handle}/live`;
-  }
-
-  const html = await fetchPage(url);
-  if (!html) return null;
-
-  return extractContinuation(html);
-}
-
-// ─── Extract continuation from page HTML ──────────────────────────────────────
-function extractContinuation(html) {
-  // ytInitialData is a large JSON blob embedded in the page
-  const marker = 'ytInitialData = ';
-  const start  = html.indexOf(marker);
-  if (start === -1) return null;
-
-  let depth = 0;
-  let i = start + marker.length;
-  const jsonStart = i;
-
-  // Walk to find matching closing brace
-  while (i < html.length) {
-    if (html[i] === '{') depth++;
-    else if (html[i] === '}') { depth--; if (depth === 0) break; }
-    i++;
-  }
-
-  try {
-    const raw = html.slice(jsonStart, i + 1);
-    const data = JSON.parse(raw);
-
-    // Navigate to liveChatRenderer continuationData
-    const contents = data?.contents?.twoColumnWatchNextResults
-      ?.conversationBar?.liveChatRenderer?.continuations;
-
-    if (contents?.length) {
-      return contents[0]?.invalidationContinuationData?.continuation
-        || contents[0]?.timedContinuationData?.continuation
-        || contents[0]?.liveChatReplayContinuationData?.continuation
-        || null;
-    }
-    return null;
-  } catch (_) {
-    return null;
-  }
-}
-
-// ─── Poll live chat ───────────────────────────────────────────────────────────
-function schedulePoll() {
-  if (!isRunning) return;
-  pollTimer = setTimeout(pollLiveChat, POLL_INTERVAL_MS);
-}
-
-async function pollLiveChat() {
-  if (!isRunning || !continuation) return;
-
-  try {
-    const body = {
-      context: {
-        client: {
-          clientName: 'WEB',
-          clientVersion: '2.20231219.04.00'
-        }
-      },
-      continuation
-    };
-
-    const res = await fetch(`${YT_BASE}/youtubei/v1/live_chat/get_live_chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
-        'Origin': YT_BASE,
-        'Referer': YT_BASE
-      },
-      body: JSON.stringify(body)
-    });
-
-    if (!res.ok) throw new Error(`YouTube poll HTTP ${res.status}`);
-
-    const data = await res.json();
-    processLiveChatResponse(data);
-  } catch (err) {
-    console.error('[YouTube] poll error:', err.message);
-    // Keep trying unless user disconnected
-  }
-
-  schedulePoll();
-}
-
-// ─── Process response ─────────────────────────────────────────────────────────
-function processLiveChatResponse(data) {
-  const cont = data?.continuationContents?.liveChatContinuation;
-  if (!cont) return;
-
-  // Update continuation token
-  const newCont = cont?.continuations?.[0]?.invalidationContinuationData?.continuation
-    || cont?.continuations?.[0]?.timedContinuationData?.continuation;
-  if (newCont) continuation = newCont;
-
-  const actions = cont?.actions || [];
-  actions.forEach(action => {
-    const item = action?.addChatItemAction?.item;
-    if (!item) return;
-
-    if (item.liveChatTextMessageRenderer) {
-      parseChatMessage(item.liveChatTextMessageRenderer);
-    } else if (item.liveChatPaidMessageRenderer) {
-      parseSuperChat(item.liveChatPaidMessageRenderer);
-    } else if (item.liveChatMembershipItemRenderer) {
-      parseMembership(item.liveChatMembershipItemRenderer);
-    }
-  });
-}
-
-// ─── Parsers ──────────────────────────────────────────────────────────────────
-function parseChatMessage(r) {
-  const username    = r.authorName?.simpleText || 'usuario';
-  const displayName = r.authorName?.simpleText || 'usuario';
-  const message     = runsToText(r.message?.runs || []);
-  const avatarUrl   = r.authorPhoto?.thumbnails?.[0]?.url || '';
-  const badges      = parseBadges(r.authorBadges || []);
-
-  emit('youtube:message', {
-    id: r.id,
-    platform:    'youtube',
-    username,
-    displayName: `@${displayName}`,
-    color:       '#ff0000',
-    message,
-    badges,
-    emotes:      {},
-    avatarUrl
-  });
-}
-
-function parseSuperChat(r) {
-  const username    = r.authorName?.simpleText || 'usuario';
-  const displayName = r.authorName?.simpleText || 'usuario';
-  const amount      = r.purchaseAmountText?.simpleText || '';
-  const message     = runsToText(r.message?.runs || []);
-
-  emit('youtube:message', {
-    id: r.id,
-    platform:    'youtube',
-    username,
-    displayName: `@${displayName}`,
-    color:       '#ffd600',
-    message,
-    badges:      [],
-    emotes:      {},
-    highlighted: true
-  });
-
-  emit('youtube:event', {
-    type: 'superchat', platform: 'youtube',
-    username, displayName: `@${displayName}`,
-    amount, message
-  });
-}
-
-function parseMembership(r) {
-  const username = r.authorName?.simpleText || 'usuario';
-  emit('youtube:event', {
-    type: 'member', platform: 'youtube',
-    username, displayName: `@${username}`
-  });
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function runsToText(runs) {
-  return runs.map(r => r.text || r.emoji?.shortcuts?.[0] || '').join('');
-}
-
-function parseBadges(rawBadges) {
-  return rawBadges.map(b => {
-    const icon = b.liveChatAuthorBadgeRenderer;
-    return {
-      url:   icon?.customThumbnail?.thumbnails?.[0]?.url || '',
-      title: icon?.tooltip || 'badge'
-    };
-  }).filter(b => b.url);
-}
-
-async function fetchPage(url) {
-  try {
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
-        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-      }
-    });
-    if (!res.ok) return null;
-    return res.text();
-  } catch (_) {
-    return null;
-  }
 }
 
 // ─── Emitters ─────────────────────────────────────────────────────────────────
 function emit(channel, data) {
-  const win = getMainWindow?.();
-  if (win && !win.isDestroyed()) win.webContents.send(channel, data);
+  const { BrowserWindow } = require('electron');
+  // Broadcast to all windows
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(channel, data);
+    }
+  });
 }
 
 function emitStatus(connected, msg = null) {

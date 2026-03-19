@@ -9,10 +9,10 @@ const EmoteManager    = require('../managers/emote-manager');
 /**
  * Register all IPC handlers.
  * @param {Electron.IpcMain} ipcMain
- * @param {{ getMainWindow: Function, getSettingsWindow: Function, openSettingsWindow: Function, openTikTokAuthWindow: Function }} ctx
+ * @param {{ getMainWindow: Function, getSettingsWindow: Function, openSettingsWindow: Function, openTikTokAuthWindow: Function, openDockWindow: Function, closeDockWindow: Function, getDockWindow: Function }} ctx
  */
 function register(ipcMain, ctx) {
-  const { getMainWindow, openSettingsWindow, openTikTokAuthWindow } = ctx;
+  const { getMainWindow, openSettingsWindow, openTikTokAuthWindow, openTwitchOAuthWindow, openDockWindow, closeDockWindow, getDockWindow } = ctx;
 
   // ── Window controls ────────────────────────────────────────────────────────
   // Use the event sender's window so any window using the preload can control itself
@@ -28,7 +28,18 @@ function register(ipcMain, ctx) {
   });
   ipcMain.on('window:close', (event) => {
     const { BrowserWindow } = require('electron');
-    BrowserWindow.fromWebContents(event.sender)?.close();
+    const win = BrowserWindow.fromWebContents(event.sender);
+    console.log('[IPC] window:close called, window:', win ? 'found' : 'not found');
+    if (win) {
+      win.close();
+    } else {
+      // Fallback: try to close all windows
+      const windows = BrowserWindow.getAllWindows();
+      console.log('[IPC] windows count:', windows.length);
+      if (windows.length > 0) {
+        windows[0].close();
+      }
+    }
   });
   ipcMain.on('window:alwaysOnTop', (_e, val) => {
     getMainWindow()?.setAlwaysOnTop(!!val);
@@ -36,10 +47,19 @@ function register(ipcMain, ctx) {
   });
   ipcMain.on('window:translucent', (_e, val) => {
     SettingsManager.set({ translucent: !!val });
-    getMainWindow()?.webContents.send('app:notify', {
-      type: 'info',
-      msg: 'Reinicia la aplicación para aplicar el modo translúcido.'
-    });
+    const win = getMainWindow();
+    if (win) {
+      win.setOpacity(val ? (SettingsManager.get().transparency / 100) : 1);
+    }
+  });
+
+  ipcMain.on('window:transparency', (_e, val) => {
+    const clamped = Math.max(70, Math.min(100, val));
+    SettingsManager.set({ transparency: clamped, translucent: true });
+    const win = getMainWindow();
+    if (win) {
+      win.setOpacity(clamped / 100);
+    }
   });
 
   // ── Settings window ────────────────────────────────────────────────────────
@@ -60,7 +80,52 @@ function register(ipcMain, ctx) {
 
   // ── Twitch ─────────────────────────────────────────────────────────────────
   ipcMain.handle('twitch:connect', async (_e, channel, token) => {
-    return TwitchConnector.connect(channel, token, getMainWindow);
+    console.log('[IPC] twitch:connect llamado con channel:', channel, 'token:', token ? 'presente' : 'ausente');
+    try {
+      // If no channel provided, try to get it from settings (saved channel) or use empty
+      const settings = SettingsManager.get();
+      const channelToUse = channel || settings.twitchChannel || null;
+      
+      const result = await TwitchConnector.connect(channelToUse, token, getMainWindow);
+      console.log('[IPC] twitch:connect resultado:', result);
+      return result;
+    } catch (err) {
+      console.error('[IPC] twitch:connect error:', err.message);
+      return { connected: false, error: err.message };
+    }
+  });
+
+  // Get current Twitch user info from token
+  ipcMain.handle('twitch:getUser', async () => {
+    const settings = SettingsManager.get();
+    const token = settings.twitchToken;
+    // Use default clientId if not set in settings
+    const clientId = settings.twitchClientId || 'w2q6ngvevmf1gkuu1ngiqwmyzqmjrt';
+    
+    if (!token) {
+      return { loggedIn: false };
+    }
+    
+    try {
+      const res = await fetch('https://api.twitch.tv/helix/users', {
+        headers: {
+          'Authorization': `Bearer ${token.replace('oauth:', '')}`,
+          'Client-Id': clientId
+        }
+      });
+      const data = await res.json();
+      if (data.data && data.data[0]) {
+        return {
+          loggedIn: true,
+          username: data.data[0].login,
+          displayName: data.data[0].display_name
+        };
+      }
+      return { loggedIn: false };
+    } catch (err) {
+      console.error('[IPC] twitch:getUser error:', err.message);
+      return { loggedIn: false, error: err.message };
+    }
   });
   ipcMain.handle('twitch:disconnect', async () => TwitchConnector.disconnect());
   ipcMain.handle('twitch:ban', async (_e, channel, user, reason) =>
@@ -78,8 +143,19 @@ function register(ipcMain, ctx) {
 
   // ── TikTok ─────────────────────────────────────────────────────────────────
   ipcMain.on('tiktok:openAuth', (event) => openTikTokAuthWindow(event));
-  ipcMain.handle('tiktok:connect', async (_e, username) => {
-    return TikTokConnector.connect(username, getMainWindow);
+  ipcMain.on('tiktok:setCookies', (_event, cookies) => {
+    // Pass cookies to the connector
+    if (TikTokConnector.setCookies) {
+      TikTokConnector.setCookies(cookies);
+    }
+  });
+
+  // ── Twitch OAuth ─────────────────────────────────────────────────────────────
+  ipcMain.on('twitch:openOAuth', (_event, clientId) => {
+    openTwitchOAuthWindow(clientId);
+  });
+  ipcMain.handle('tiktok:connect', async (_e, username, sessionId) => {
+    return TikTokConnector.connect(username, getMainWindow, sessionId);
   });
   ipcMain.handle('tiktok:disconnect', async () => TikTokConnector.disconnect());
 
@@ -94,6 +170,44 @@ function register(ipcMain, ctx) {
     return EmoteManager.loadForChannel(platform, channelId);
   });
   ipcMain.handle('emotes:getCache', async () => EmoteManager.getSerializableCache());
+
+  // ── Dock Window ───────────────────────────────────────────────────────────
+  ipcMain.on('dock:openFloat', () => {
+    openDockWindow();
+    // Notify main window to hide its docked dock
+    const mainWin = getMainWindow();
+    if (mainWin && !mainWin.isDestroyed()) {
+      mainWin.webContents.send('dock:floatOpened');
+    }
+  });
+
+  ipcMain.on('dock:setPosition', (_e, pos) => {
+    // Close dock window first
+    closeDockWindow();
+    // Save position to settings
+    SettingsManager.set({ dockPosition: pos });
+    // Notify main window to show docked dock at new position
+    const mainWin = getMainWindow();
+    if (mainWin && !mainWin.isDestroyed()) {
+      mainWin.webContents.send('dock:positionChanged', pos);
+    }
+  });
+
+  ipcMain.on('dock:clearEvents', () => {
+    // Clear events in main window's dock too
+    const mainWin = getMainWindow();
+    if (mainWin && !mainWin.isDestroyed()) {
+      mainWin.webContents.send('dock:clearEvents');
+    }
+  });
+
+  // Send event to dock window (from main chat)
+  ipcMain.on('dock:addEvent', (_e, event) => {
+    const dockWin = getDockWindow();
+    if (dockWin && !dockWin.isDestroyed()) {
+      dockWin.webContents.send('dock:event', event);
+    }
+  });
 }
 
 module.exports = { register };

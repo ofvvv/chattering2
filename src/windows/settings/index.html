@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self';" />
+    content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';" />
   <title>Chattering – Configuración</title>
   <link rel="stylesheet" href="settings.css" />
 </head>
@@ -25,19 +25,19 @@
   <div id="settings-layout">
 
     <nav id="settings-nav">
-      <button class="nav-item active" data-section="appearance">Apariencia</button>
+      <button class="nav-item active" data-section="connections">Cuentas</button>
+      <button class="nav-item" data-section="appearance">Apariencia</button>
       <button class="nav-item" data-section="chat">Chat</button>
       <button class="nav-item" data-section="tts">TTS</button>
       <button class="nav-item" data-section="alerts">Alertas</button>
       <button class="nav-item" data-section="moderation">Moderación</button>
-      <button class="nav-item" data-section="connections">Conexiones</button>
       <button class="nav-item" data-section="accessibility">Accesibilidad</button>
     </nav>
 
     <div id="settings-content">
 
       <!-- ── Appearance ──────────────────────────────────────────────────── -->
-      <section class="settings-section active" id="sec-appearance">
+      <section class="settings-section" id="sec-appearance">
         <h2>Apariencia</h2>
 
         <div class="setting-group">
@@ -45,21 +45,30 @@
           <select class="setting-control" id="sel-theme" data-key="theme">
             <option value="dark">Oscuro</option>
             <option value="light">Claro</option>
+            <option value="gray">Gris</option>
+            <option value="lightgray">Gris Claro</option>
+            <option value="sakura">Sakura</option>
+            <option value="midnight">Midnight</option>
           </select>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">Modo translúcido</label>
+          <label class="toggle">
+            <input type="checkbox" id="chk-translucent" data-key="translucent" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label" for="rng-transparency">Transparencia: <strong id="lbl-transparency">100</strong>%</label>
+          <input type="range" id="rng-transparency" data-key="transparency" min="70" max="100" step="5" value="100" />
         </div>
 
         <div class="setting-group">
           <label class="setting-label">Modo Always On Top</label>
           <label class="toggle">
             <input type="checkbox" id="chk-alwaysontop" data-key="alwaysOnTop" />
-            <span class="toggle-track"><span class="toggle-thumb"></span></span>
-          </label>
-        </div>
-
-        <div class="setting-group">
-          <label class="setting-label">Modo translúcido <span class="hint">(requiere reinicio)</span></label>
-          <label class="toggle">
-            <input type="checkbox" id="chk-translucent" data-key="translucent" />
             <span class="toggle-track"><span class="toggle-thumb"></span></span>
           </label>
         </div>
@@ -97,7 +106,7 @@
           </select>
         </div>
 
-        <div class="setting-group">
+        <div class="setting-group" id="bot-list-group">
           <label class="setting-label" for="txt-bot-list">Lista de bots (separados por coma)</label>
           <input type="text" class="setting-input" id="txt-bot-list" data-key="botList"
             placeholder="Nightbot, Streamlabs, …" />
@@ -123,6 +132,22 @@
           <label class="setting-label" for="txt-highlight-words">Palabras a resaltar</label>
           <input type="text" class="setting-input" id="txt-highlight-words" data-key="highlightWords"
             placeholder="tu_usuario, keyword2, …" />
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">Ocultar mensajes de bots</label>
+          <label class="toggle">
+            <input type="checkbox" id="chk-hide-bots" data-key="hideBots" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">Mostrar logo de plataforma en mensajes</label>
+          <label class="toggle">
+            <input type="checkbox" id="chk-show-platform-logos" data-key="showPlatformLogos" checked />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
         </div>
       </section>
 
@@ -235,39 +260,84 @@
       </section>
 
       <!-- ── Connections ─────────────────────────────────────────────────── -->
-      <section class="settings-section" id="sec-connections">
-        <h2>Conexiones</h2>
+      <section class="settings-section active" id="sec-connections">
+        <h2>Cuentas</h2>
 
-        <div class="setting-group">
-          <label class="setting-label">Twitch Client ID (para API)</label>
+        <!-- Twitch -->
+        <div class="account-card" id="card-twitch">
+          <div class="account-header">
+            <span class="platform-logo twitch-logo">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z"/></svg>
+            </span>
+            <span class="platform-name">Twitch</span>
+            <span class="connection-status" id="status-twitch">Desconectado</span>
+          </div>
+          <div class="account-body">
+            <p class="account-description">Conecta con Twitch para chatear, hacer seguimiento de eventos y más.</p>
+            <div class="account-actions">
+              <button class="btn-account" id="btn-twitch-login">
+                <span class="btn-icon">🔗</span> Conectar con Twitch
+              </button>
+              <button class="btn-account danger hidden" id="btn-twitch-logout">
+                <span class="btn-icon">🗑</span> Desconectar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- YouTube -->
+        <div class="account-card" id="card-youtube">
+          <div class="account-header">
+            <span class="platform-logo youtube-logo">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+            </span>
+            <span class="platform-name">YouTube</span>
+            <span class="connection-status" id="status-youtube">Desconectado</span>
+          </div>
+          <div class="account-body">
+            <p class="account-description">Ingresa un canal de YouTube para conectar.</p>
+            <div class="setting-group">
+              <input type="text" class="setting-input" id="txt-yt-channel"
+                data-key="youtubeChannel" placeholder="@canal o ID del canal" />
+            </div>
+            <div class="account-actions">
+              <button class="btn-account" id="btn-youtube-connect">
+                <span class="btn-icon">🔗</span> Conectar
+              </button>
+              <button class="btn-account danger hidden" id="btn-youtube-disconnect">
+                <span class="btn-icon">🗑</span> Desconectar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TikTok -->
+        <div class="account-card" id="card-tiktok">
+          <div class="account-header">
+            <span class="platform-logo tiktok-logo">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93v6.16c0 2.52-1.12 4.84-2.9 6.15-1.73 1.26-3.91 1.79-5.99 1.59-3.48-.33-6.57-2.72-7.67-6.08-1.29-3.85.47-7.95 4.22-9.68.22-.1.44-.19.65-.28.67-.29 1.45-.43 2.2-.28V.02z"/></svg>
+            </span>
+            <span class="platform-name">TikTok</span>
+            <span class="connection-status" id="status-tiktok">Desconectado</span>
+          </div>
+          <div class="account-body">
+            <p class="account-description">Inicia sesión en TikTok para conectar con lives.</p>
+            <div class="account-actions">
+              <button class="btn-account" id="btn-tiktok-login">
+                <span class="btn-icon">🔗</span> Iniciar sesión
+              </button>
+              <button class="btn-account danger hidden" id="btn-tiktok-logout">
+                <span class="btn-icon">🗑</span> Cerrar sesión
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Client ID (for advanced users) -->
+        <div class="setting-group" style="margin-top: 20px;">
+          <label class="setting-label">Twitch Client ID (avanzado)</label>
           <input type="text" class="setting-input" id="txt-twitch-client-id"
-            data-key="twitchClientId" placeholder="xxxxxxxxxxxxxxxxxx" autocomplete="off" />
-        </div>
-
-        <div class="setting-group">
-          <label class="setting-label">Twitch OAuth Token</label>
-          <input type="password" class="setting-input" id="txt-twitch-token"
-            data-key="twitchToken" placeholder="oauth:xxxxxxxxxxxxxxxxxx" autocomplete="off" />
-        </div>
-
-        <div class="setting-group">
-          <label class="setting-label" for="txt-twitch-channel">Canal de Twitch (defecto)</label>
-          <input type="text" class="setting-input" id="txt-twitch-channel"
-            data-key="twitchChannel" placeholder="tu_canal" />
-        </div>
-
-        <div class="setting-group separator"></div>
-
-        <div class="setting-group">
-          <label class="setting-label" for="txt-yt-channel">Canal de YouTube (defecto)</label>
-          <input type="text" class="setting-input" id="txt-yt-channel"
-            data-key="youtubeChannel" placeholder="@tucanal o ID" />
-        </div>
-
-        <div class="setting-group">
-          <label class="setting-label" for="txt-tiktok-user">Usuario TikTok (defecto)</label>
-          <input type="text" class="setting-input" id="txt-tiktok-user"
-            data-key="tiktokUser" placeholder="@tuusuario" />
+            data-key="twitchClientId" placeholder="w2q6ngvevmf1gkuu1ngiqwmyzqmjrt" autocomplete="off" />
         </div>
       </section>
 

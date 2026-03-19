@@ -65,17 +65,25 @@ function getSerializableCache() {
 async function load7tvGlobal() {
   try {
     const data = await fetchJson('https://7tv.io/v3/emote-sets/global');
+    console.log('[Emotes] 7TV Global emotes:', data?.emotes?.length || 0);
     parseEmoteSet7tv(data?.emotes || []);
-  } catch (_) {}
+  } catch (e) {
+    console.error('[Emotes] 7TV Global error:', e.message);
+  }
 }
 
 async function load7tvChannel(channelLogin) {
   try {
     // 7TV uses Twitch user ID; try login→ID lookup via their API
+    console.log('[Emotes] 7TV Channel loading for:', channelLogin);
     const data = await fetchJson(`https://7tv.io/v3/users/twitch/${channelLogin}`);
+    console.log('[Emotes] 7TV Channel response:', data ? 'ok' : 'empty');
     const emotes = data?.emote_set?.emotes || [];
+    console.log('[Emotes] 7TV Channel emotes:', emotes.length);
     parseEmoteSet7tv(emotes);
-  } catch (_) {}
+  } catch (e) {
+    console.error('[Emotes] 7TV Channel error:', e.message);
+  }
 }
 
 function parseEmoteSet7tv(emotes) {
@@ -96,17 +104,24 @@ function parseEmoteSet7tv(emotes) {
 async function loadBttvGlobal() {
   try {
     const data = await fetchJson('https://api.betterttv.net/3/cached/emotes/global');
+    console.log('[Emotes] BTTV Global emotes:', data?.length || 0);
     parseBttvEmotes(data);
-  } catch (_) {}
+  } catch (e) {
+    console.error('[Emotes] BTTV Global error:', e.message);
+  }
 }
 
 async function loadBttvChannel(channelLogin) {
   try {
     // BTTV needs Twitch user ID; resolve it first
+    console.log('[Emotes] BTTV Channel loading for:', channelLogin);
     const userData = await fetchJson(`https://api.betterttv.net/3/cached/users/twitch/${channelLogin}`);
+    console.log('[Emotes] BTTV Channel response:', userData ? 'ok' : 'empty');
     parseBttvEmotes(userData?.channelEmotes || []);
     parseBttvEmotes(userData?.sharedEmotes || []);
-  } catch (_) {}
+  } catch (e) {
+    console.error('[Emotes] BTTV Channel error:', e.message);
+  }
 }
 
 function parseBttvEmotes(emotes) {
@@ -123,18 +138,25 @@ function parseBttvEmotes(emotes) {
 async function loadFfzGlobal() {
   try {
     const data = await fetchJson('https://api.frankerfacez.com/v1/set/global');
+    console.log('[Emotes] FFZ Global sets:', Object.keys(data?.sets || {}).length);
     parseFfzSets(data?.sets || {});
-  } catch (_) {}
+  } catch (e) {
+    console.error('[Emotes] FFZ Global error:', e.message);
+  }
 }
 
 async function loadFfzChannel(channelLogin) {
   try {
+    console.log('[Emotes] FFZ Channel loading for:', channelLogin);
     const data = await fetchJson(`https://api.frankerfacez.com/v1/room/${channelLogin}`);
+    console.log('[Emotes] FFZ Channel response:', data?.room ? 'ok' : 'empty');
     const setId = data?.room?.set;
     if (setId && data?.sets?.[setId]) {
       parseFfzSets({ [setId]: data.sets[setId] });
     }
-  } catch (_) {}
+  } catch (e) {
+    console.error('[Emotes] FFZ Channel error:', e.message);
+  }
 }
 
 function parseFfzSets(sets) {
