@@ -3,272 +3,187 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    Chattering – TikTok Connector
    ─────────────────────────────────────────────────────────────────────────
-   Uses tiktok-live-connector (no API key required).
-   Cookies are captured via the TikTok auth window in main.js and passed
-   here through SettingsManager or directly per-session.
-   
-   Features:
-   - Manual cookie injection workaround
-   - Auto-reconnect with exponential backoff
-   - Handles offline streams gracefully
+   Auth: sessionId only (value of 'sessionid' cookie).
+   Username: the creator's @handle whose live to connect to.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const { WebcastPushConnection } = require('tiktok-live-connector');
-const { broadcast } = require('../utils');
+const { broadcast }             = require('../utils');
 
-// ─── State ───────────────────────────────────────────────────────────────────
-let connection    = null;
-let activeUser    = null;
-let getMainWindow = null;
-let reconnectTimer = null;
+let connection        = null;
+let activeUser        = null;
+let activeSessionId   = null;
+let getMainWindow     = null;
+let reconnectTimer    = null;
 let reconnectAttempts = 0;
-let tiktokCookies = null;
 
-// ─── Set cookies (called from main process) ─────────────────────────────────
 function setCookies(cookies) {
-  tiktokCookies = cookies;
-  console.log('[TikTok] Cookies set:', Object.keys(cookies || {}).length, 'cookies');
+  if (!cookies) return;
+  const sid = cookies.sessionid || cookies.sessionid_ss || null;
+  if (sid) { activeSessionId = sid; console.log('[TikTok] sessionId updated'); }
 }
 
-// ─── Connect ─────────────────────────────────────────────────────────────────
 async function connect(username, getWin, sessionId = null) {
   if (connection) await disconnect();
-  getMainWindow = getWin;
-  activeUser    = username.replace(/^@/, '').trim();
+  getMainWindow     = getWin;
+  activeUser        = (username || '').replace(/^@/, '').trim();
+  activeSessionId   = sessionId || activeSessionId;
   reconnectAttempts = 0;
+  if (!activeUser) throw new Error('TikTok: username requerido');
 
-  if (!activeUser) {
-    throw new Error('TikTok connect failed: username requerido');
-  }
-
-  // Build options
   const opts = {
-    processInitialData: false,
-    enableExtendedGiftInfo: true,
-    enableWebsocketUpgrade: true,
+    processInitialData:       true,
+    enableExtendedGiftInfo:   true,
+    enableWebsocketUpgrade:   true,
     requestPollingIntervalMs: 2000,
-    forceFetchRoomInfo: true,
+    reconnectEnabled:         false,  // we handle reconnects ourselves
     clientParams: {
-      "app_language": "es-ES",
-      "device_platform": "web",
-      "tt-target-idc": "useast5"
-    },
-    requestHeaders: {}
+      app_language:    'en-US',
+      device_platform: 'web',
+      os:              'windows'
+    }
   };
-
-  // Use sessionId if provided, otherwise try to use cookies
-  if (sessionId) {
-    opts.sessionId = sessionId;
-  } else if (tiktokCookies) {
-    // Inject cookies directly into request headers as workaround
-    // This helps avoid strict validation errors
-    const cookieHeader = Object.entries(tiktokCookies)
-      .map(([key, val]) => `${key}=${val}`)
-      .join('; ');
-    opts.requestHeaders['Cookie'] = cookieHeader;
-    console.log('[TikTok] Using injected cookies');
+  if (activeSessionId) {
+    opts.sessionId = activeSessionId;
+    console.log('[TikTok] Using sessionId auth');
   }
 
   connection = new WebcastPushConnection(activeUser, opts);
 
-  connection.on('chat', onChat);
-  connection.on('gift', onGift);
-  connection.on('like', onLike);
-  connection.on('follow', onFollow);
-  connection.on('share', onShare);
+  connection.on('chat',      onChat);
+  connection.on('gift',      onGift);
+  connection.on('like',      onLike);
+  connection.on('follow',    onFollow);
+  connection.on('share',     onShare);
   connection.on('subscribe', onSubscribe);
   connection.on('streamEnd', onStreamEnd);
+  connection.on('member',    onMember);
+  // Raw websocket msg count for debugging
+  connection.on('rawData', (msgType) => {
+    if (msgType === 'WebcastChatMessage') console.log('[TikTok] 💬 raw chat packet received');
+  });
+
   connection.on('connected', () => {
-    console.log(`[TikTok] Connected to ${activeUser}`);
+    console.log(`[TikTok] Connected to @${activeUser}`);
     emitStatus(true);
     reconnectAttempts = 0;
   });
   connection.on('disconnected', () => {
-    console.log(`[TikTok] Disconnected from ${activeUser}`);
+    console.log(`[TikTok] Disconnected`);
     emitStatus(false);
     scheduleReconnect();
   });
   connection.on('error', (err) => {
-    console.error('[TikTok] connector error:', err.message);
-    
-    // Handle specific error cases
-    if (err.message?.includes('LIVE has ended') || 
-        err.message?.includes('offline') || 
-        err.message?.includes('not found') ||
-        err.message?.includes('19881007')) {
-      // Stream is offline - reconnect silently
-      console.log(`[TikTok] @${activeUser} está offline. Reintentando en 60s...`);
-      emitStatus(false, 'Stream offline. Reintentando...');
+    const msg = err?.message || String(err);
+    console.error('[TikTok] Error:', msg);
+    const isOffline = msg.includes('LIVE has ended') || msg.includes('offline') ||
+      msg.includes('not found') || msg.includes('19881007') ||
+      msg.includes('user_not_found') || msg.includes('LiveRoomNotFound');
+    if (isOffline) {
+      emitStatus(false, 'Stream offline', true);
       clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(() => {
-        if (activeUser) connect(activeUser, getWin, sessionId);
+        if (activeUser) connect(activeUser, getMainWindow, activeSessionId);
       }, 60000);
     } else {
-      // Other error - emit and schedule reconnect
-      let userMsg = err.message;
-      if (err.message?.includes('19881007') || err.message?.includes('user_not_found')) {
-        userMsg = 'El usuario no existe o no está en vivo. Asegúrate de que el streamer está transmitiendo.';
-      } else if (err.message?.includes('not_authenticated') || err.message?.includes('auth')) {
-        userMsg = 'Se requiere iniciar sesión en TikTok. Haz clic en "Login TikTok" primero.';
-      }
+      const userMsg = (msg.includes('not_authenticated') || msg.includes('unauthenticated'))
+        ? 'Sesión expirada. Vuelve a iniciar sesión en TikTok.' : msg;
       emitStatus(false, userMsg);
       scheduleReconnect();
     }
   });
 
   try {
-    console.log(`[TikTok] Attempting to connect to: ${activeUser}`);
+    console.log(`[TikTok] Connecting to @${activeUser}...`);
     const state = await connection.connect();
-    console.log(`[TikTok] Connected successfully, roomInfo:`, state?.roomInfo);
+    console.log(`[TikTok] Room:`, state?.roomInfo?.title || '(no title)');
     return { connected: true, roomInfo: state?.roomInfo || {} };
   } catch (err) {
     connection = null;
-    // Provide more helpful error messages
     let errorMsg = err.message;
-    if (errorMsg?.includes('19881007') || errorMsg?.includes('user_not_found')) {
-      errorMsg = 'API Error 19881007: El usuario no existe o no está en vivo actualmente. TikTok Live requiere que el streamer esté transmitiendo.';
-    } else if (errorMsg?.includes('not_found')) {
-      errorMsg = 'No se encontró el usuario. Verifica el nombre de usuario e intenta de nuevo.';
+    const isOfflineErr = errorMsg.includes('19881007') || errorMsg.includes('user_not_found') ||
+      errorMsg.includes('LiveRoomNotFound') || errorMsg.includes('not found');
+    if (isOfflineErr) {
+      errorMsg = `@${activeUser} no está en vivo actualmente.`;
+      emitStatus(false, errorMsg, true);
+    } else {
+      emitStatus(false, errorMsg);
     }
-    throw new Error(`TikTok connect failed: ${errorMsg}`);
+    throw new Error(`TikTok: ${errorMsg}`);
   }
 }
 
-// ─── Reconnect with exponential backoff ─────────────────────────────────────
 function scheduleReconnect() {
   clearTimeout(reconnectTimer);
   if (!activeUser) return;
-  
   reconnectAttempts++;
   const delay = Math.min(2000 * Math.pow(2, reconnectAttempts - 1), 60000);
-  console.log(`[TikTok] Reconectando en ${delay/1000}s... (Intento ${reconnectAttempts})`);
-  
   reconnectTimer = setTimeout(() => {
-    if (activeUser && connection) {
-      // Already connected or connecting, don't reconnect
-    } else if (activeUser) {
-      connect(activeUser, getMainWindow);
-    }
+    if (activeUser) connect(activeUser, getMainWindow, activeSessionId);
   }, delay);
 }
 
-// ─── Disconnect ───────────────────────────────────────────────────────────────
 async function disconnect() {
   clearTimeout(reconnectTimer);
   reconnectAttempts = 0;
-  
-  if (connection) {
-    try { connection.disconnect(); } catch (_) {}
-    connection = null;
-  }
-  activeUser = null;
+  if (connection) { try { connection.disconnect(); } catch(_){} connection = null; }
+  activeUser = null; activeSessionId = null;
   emitStatus(false);
 }
 
-// ─── Chat message ─────────────────────────────────────────────────────────────
 function onChat(data) {
-  emit('tiktok:message', {
-    id:          data.msgId || String(Date.now()),
-    platform:    'tiktok',
-    username:    data.uniqueId || 'usuario',
+  const msg = data.comment || '';
+  if (!msg) return;
+  broadcast('tiktok:message', {
+    id: data.msgId || String(Date.now()), platform: 'tiktok',
+    username: data.uniqueId || 'usuario',
     displayName: data.nickname || data.uniqueId || 'usuario',
-    color:       '#ff0050',
-    message:     data.comment || '',
-    badges:      buildTikTokBadges(data),
-    emotes:      {},
-    avatarUrl:   data.profilePictureUrl || ''
+    color: '#ff0050', message: msg,
+    badges: buildBadges(data), emotes: {},
+    avatarUrl: data.profilePictureUrl || '',
+    isMod: false, isVip: false, isSub: data.isSubscriber || false
   });
 }
-
-// ─── Gift ──────────────────────────────────────────────────────────────────────
 function onGift(data) {
-  if (data.giftType === 1 && !data.repeatEnd) return;  // Still sending streak
-
-  emit('tiktok:event', {
-    type:        'gift',
-    platform:    'tiktok',
-    username:    data.uniqueId,
-    displayName: data.nickname || data.uniqueId,
-    amount:      data.repeatCount || 1,
-    message:     data.giftName || '',
-    giftName:    data.giftName,
-    giftImg:     data.giftPictureUrl
-  });
+  if (data.giftType === 1 && !data.repeatEnd) return;
+  broadcast('tiktok:event', { type:'gift', platform:'tiktok',
+    username: data.uniqueId, displayName: data.nickname || data.uniqueId,
+    amount: data.repeatCount || 1, message: data.giftName || '',
+    giftName: data.giftName, giftImg: data.giftPictureUrl });
 }
-
-// ─── Like ──────────────────────────────────────────────────────────────────────
 function onLike(data) {
-  emit('tiktok:event', {
-    type:        'like',
-    platform:    'tiktok',
-    username:    data.uniqueId,
-    displayName: data.nickname || data.uniqueId,
-    amount:      data.likeCount || 1
-  });
+  broadcast('tiktok:event', { type:'like', platform:'tiktok',
+    username: data.uniqueId, displayName: data.nickname || data.uniqueId, amount: data.likeCount || 1 });
 }
-
-// ─── Follow ───────────────────────────────────────────────────────────────────
 function onFollow(data) {
-  emit('tiktok:event', {
-    type:        'follow',
-    platform:    'tiktok',
-    username:    data.uniqueId,
-    displayName: data.nickname || data.uniqueId
-  });
+  broadcast('tiktok:event', { type:'follow', platform:'tiktok',
+    username: data.uniqueId, displayName: data.nickname || data.uniqueId });
 }
-
-// ─── Share ────────────────────────────────────────────────────────────────────
 function onShare(data) {
-  emit('tiktok:event', {
-    type:        'share',
-    platform:    'tiktok',
-    username:    data.uniqueId,
-    displayName: data.nickname || data.uniqueId
-  });
+  broadcast('tiktok:event', { type:'share', platform:'tiktok',
+    username: data.uniqueId, displayName: data.nickname || data.uniqueId });
 }
-
-// ─── Subscribe ────────────────────────────────────────────────────────────────
 function onSubscribe(data) {
-  emit('tiktok:event', {
-    type:        'sub',
-    platform:    'tiktok',
-    username:    data.uniqueId,
-    displayName: data.nickname || data.uniqueId
-  });
+  broadcast('tiktok:event', { type:'sub', platform:'tiktok',
+    username: data.uniqueId, displayName: data.nickname || data.uniqueId });
 }
-
-// ─── Stream ended ─────────────────────────────────────────────────────────────
+function onMember(data) {
+  broadcast('tiktok:event', { type:'member', platform:'tiktok',
+    username: data.uniqueId, displayName: data.nickname || data.uniqueId });
+}
 function onStreamEnd() {
-  emitStatus(false);
-  emit('tiktok:event', {
-    type: 'streamEnd', platform: 'tiktok',
-    username: activeUser, displayName: activeUser
-  });
-  // Schedule reconnect for when stream comes back
+  emitStatus(false, 'Stream terminado', true);
+  broadcast('tiktok:event', { type:'streamEnd', platform:'tiktok',
+    username: activeUser, displayName: activeUser });
   scheduleReconnect();
 }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function buildTikTokBadges(data) {
-  const badges = [];
-  if (data.userBadges) {
-    data.userBadges.forEach(badge => {
-      if (badge.displayType === 1 && badge.url?.length > 0) {
-        badges.push({ url: badge.url, title: badge.name || 'badge' });
-      }
-    });
-  }
-  return badges;
+function buildBadges(data) {
+  return (data.userBadges || [])
+    .filter(b => b.displayType === 1 && b.url?.length > 0)
+    .map(b => ({ url: b.url, title: b.name || 'badge' }));
 }
-
-// ─── Emitters ─────────────────────────────────────────────────────────────────
-// Using shared broadcast utility from src/utils
-function emit(channel, data) {
-  broadcast(channel, data);
-}
-
-function emitStatus(connected, errorMsg = null) {
-  emit('tiktok:status', { connected, channel: activeUser, error: errorMsg });
+function emitStatus(connected, errorMsg = null, idle = false) {
+  broadcast('tiktok:status', { connected, idle, channel: activeUser, error: errorMsg });
 }
 
 module.exports = { connect, disconnect, setCookies };

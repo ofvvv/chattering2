@@ -198,7 +198,7 @@ async function connect(channelHandle, getWin) {
       const msg = err?.message || String(err);
       console.error('[YouTube] Error:', msg);
       if (msg.includes('Live Stream was not found') || msg.includes('No live')) {
-        emitStatus(false, 'No hay live activo en este canal');
+        emitStatus(false, 'No hay live activo en este canal', true);  // idle=true
       } else if (msg.includes('not found')) {
         emitStatus(false, 'Canal no encontrado');
       } else {
@@ -209,7 +209,7 @@ async function connect(channelHandle, getWin) {
     chat.on('end', () => {
       console.log('[YouTube] Stream terminado');
       isRunning = false;
-      emitStatus(false, 'Stream terminado');
+      emitStatus(false, 'Stream terminado', true);  // idle=true: channel exists, just not live
     });
 
     // ── Step 3: start polling ─────────────────────────────────────────────────
@@ -244,8 +244,8 @@ function emit(channel, data) {
   broadcast(channel, data);
 }
 
-function emitStatus(connected, msg = null) {
-  emit('youtube:status', { connected, channel: activeChannel, message: msg });
+function emitStatus(connected, msg = null, idle = false) {
+  emit('youtube:status', { connected, idle, channel: activeChannel, message: msg });
 }
 
 module.exports = { connect, disconnect };

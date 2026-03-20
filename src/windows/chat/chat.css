@@ -472,9 +472,10 @@ body {
   background: var(--text-dim);
 }
 
-.status-badge.connected .status-dot { background: var(--success); }
-.status-badge.error .status-dot { background: var(--danger); }
-.status-badge.connecting .status-dot {
+.status-badge.connected .status-dot   { background: var(--success); }
+.status-badge.error .status-dot       { background: var(--danger); }
+.status-badge.warning .status-dot     { background: var(--warning); }   /* connected but not live */
+.status-badge.connecting .status-dot  {
   background: var(--warning);
   animation: pulse 1s infinite;
 }
@@ -546,6 +547,7 @@ body.no-msg-anim .chat-message {
   transition: background 100ms;
   word-break: break-word;
   border-bottom: 1px solid var(--border);
+  color: var(--text-primary);          /* ← explicit: light themes are dark text */
 }
 
 .chat-message:hover { background: var(--bg-hover); }
@@ -594,15 +596,27 @@ body.no-msg-anim .chat-message {
   white-space: nowrap;
   cursor: pointer;
   transition: opacity 100ms;
+  flex-shrink: 0;
 }
 
 .msg-author:hover { opacity: .75; }
 
-.msg-sep { color: var(--text-dim); margin: 0 1px; }
+.msg-sep { color: var(--text-dim); margin: 0 1px; flex-shrink: 0; }
 
-.msg-content {
+/* msg-content wraps long messages. With flex-wrap on the row, when content
+   overflows it flows to a new line that starts AFTER the left-fixed elements
+   (icon, timestamp, badges) — but we want it to indent to after the author.
+   Solution: group author+sep+content as one flex item using inline-flow. */
+.msg-body-wrap {
+  display: inline;
   flex: 1;
   min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.msg-content {
+  display: inline;
 }
 
 /* Emotes inside messages */
@@ -1200,6 +1214,11 @@ body.no-msg-anim .chat-message {
 .event-inline-text { flex: 1; color: var(--text-muted); line-height: 1.4; }
 .event-inline-text strong { color: var(--text-primary); font-weight: 700; }
 .event-inline-platform {
+  font-size: 10px;
+  color: var(--dim);
+  margin-left: 5px;
+  font-style: normal;
+}
   font-size: 10px;
   color: var(--dim);
   margin-left: 5px;

@@ -254,8 +254,8 @@ function setupWindowButtons() {
   });
 
   $('#btn-tiktok-login')?.addEventListener('click', () => {
-    console.log('[Settings] TikTok login clicked');
     window.chattering.tiktok.openAuthWindow();
+    showToast('Abre TikTok, inicia sesión. La ventana se cerrará automáticamente.', 'info');
   });
 
   $('#btn-tiktok-logout')?.addEventListener('click', async () => {
@@ -270,13 +270,13 @@ function setupWindowButtons() {
 
   // Listen for TikTok cookies captured — update status immediately
   window.chattering.tiktok.onCookiesCaptured?.((cookies) => {
-    if (cookies) {
-      const sid = cookies.sessionid || cookies.sessionid_ss || null;
-      if (sid) currentSettings.tiktokSessionId = sid;
-      currentSettings.tiktokCookies = cookies;
-      updateConnectionStatus('tiktok', true);
-      showToast('Sesión de TikTok capturada', 'success');
-    }
+    if (!cookies) return;
+    const resolvedUser = cookies._resolvedUsername || null;
+    const sid = cookies.sessionid || cookies.sessionid_ss || null;
+    if (sid) currentSettings.tiktokSessionId = sid;
+    if (resolvedUser) currentSettings.tiktokUser = resolvedUser;
+    currentSettings.tiktokCookies = cookies;
+    updateConnectionStatus('tiktok', true, resolvedUser ? `@${resolvedUser}` : 'Conectado');
   });
   // ── Listen for live status updates from connectors ──────────────────────────
   window.chattering.twitch.onStatus?.((data) => {

@@ -4,7 +4,8 @@ const { app, BrowserWindow, ipcMain, screen, shell, session } = require('electro
 const path = require('path');
 const http = require('http');
 const SettingsManager = require('./src/managers/settings-manager');
-const ipcHandlers = require('./src/ipc/handlers');
+const ipcHandlers    = require('./src/ipc/handlers');
+const updater        = require('./src/updater');
 
 // ─── Performance: disable hardware acceleration ──────────────────────────────
 // These must be called before app.ready - use will-finish-launching event
@@ -124,6 +125,10 @@ function startOAuthServer() {
 
 // ─── App ready ──────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
+  // Set app icon for Windows dev-mode taskbar
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('com.ofvvv.chattering');
+  }
   // Start OAuth server first
   await startOAuthServer();
   
@@ -149,6 +154,12 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
+
+  // Auto-updater — init and check 5 s after startup (only in packaged builds)
+  if (app.isPackaged) {
+    updater.init(() => mainWindow);
+    setTimeout(() => updater.checkForUpdates(true), 5000);
+  }
 });
 
 app.on('window-all-closed', () => {
@@ -166,9 +177,13 @@ function checkTikTokCookiesOnStartup() {
         const allCookies = {};
         cookies.forEach(c => { allCookies[c.name] = c.value; });
         // Small delay to ensure renderer is ready
+        const savedUsername = SettingsManager.get().tiktokUser || '';
         setTimeout(() => {
           if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('tiktok:cookies-captured', allCookies);
+            mainWindow.webContents.send('tiktok:cookies-captured', {
+              ...allCookies,
+              _resolvedUsername: savedUsername || null
+            });
           }
         }, 1500);
       } else {
@@ -217,7 +232,7 @@ function createMainWindow() {
       backgroundThrottling: false,
       spellcheck: false
     },
-    icon: path.join(__dirname, 'assets/icons/icon.png')
+    icon: path.join(__dirname, 'assets/icons/chattering.png')
   });
 
   mainWindow.loadFile(path.join(__dirname, 'src/windows/chat/index.html'));
@@ -262,7 +277,7 @@ function openSettingsWindow() {
       backgroundThrottling: true,
       spellcheck: false
     },
-    icon: path.join(__dirname, 'assets/icons/icon.png')
+    icon: path.join(__dirname, 'assets/icons/chattering.png')
   });
 
   settingsWindow.loadFile(path.join(__dirname, 'src/windows/settings/index.html'));
@@ -303,7 +318,7 @@ function openDockWindow() {
       backgroundThrottling: true,
       spellcheck: false
     },
-    icon: path.join(__dirname, 'assets/icons/icon.png')
+    icon: path.join(__dirname, 'assets/icons/chattering.png')
   });
 
   dockWindow.loadFile(path.join(__dirname, 'src/windows/dock/index.html'));
@@ -409,17 +424,60 @@ function openTikTokAuthWindowInternal(tiktokSession) {
       const sessionKey = cookies.find(c => c.name === 'sessionid' || c.name === 'sessionid_ss');
 
       if (sessionKey) {
-        console.log('[TikTok Auth] Session cookie found – capturing');
+        console.log('[TikTok Auth] Session cookie found – resolving username…');
         const allCookies = {};
         cookies.forEach(c => { allCookies[c.name] = c.value; });
 
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('tiktok:cookies-captured', allCookies);
-        }
-        // Also persist sessionId to settings so reconnects work after restart
-        SettingsManager.set({ tiktokSessionId: sessionKey.value });
+        // Resolve logged-in TikTok username using the Electron session (most reliable method)
+        let tiktokUsername = null;
+        try {
+          // Build Cookie header from the captured cookies
+          const cookieHeader = Object.entries(allCookies)
+            .map(([k, v]) => `${k}=${v}`).join('; ');
 
-        // Close auth window after a short delay so the user sees confirmation
+          // TikTok's user-info API — works with a valid sessionid cookie
+          const endpoints = [
+            'https://www.tiktok.com/api/user/detail/?aid=1988&app_name=tiktok_web&device_platform=web_pc',
+            'https://www.tiktok.com/passport/web/account/info/?aid=1988&app_name=tiktok_web'
+          ];
+
+          for (const endpoint of endpoints) {
+            try {
+              const resp = await globalThis.fetch(endpoint, {
+                headers: {
+                  'Cookie':     cookieHeader,
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                  'Referer':    'https://www.tiktok.com/'
+                }
+              });
+              const json = await resp.json();
+              const uid = json?.userInfo?.user?.uniqueId
+                       || json?.data?.user?.uniqueId
+                       || json?.user?.uniqueId;
+              if (uid) { tiktokUsername = uid; break; }
+            } catch(_) {}
+          }
+        } catch(e) {
+          console.warn('[TikTok Auth] Could not resolve username via API:', e.message);
+        }
+
+        console.log('[TikTok Auth] Username resolved:', tiktokUsername || '(unknown)');
+
+        // Persist to settings
+        SettingsManager.set({
+          tiktokSessionId: sessionKey.value,
+          tiktokUser:      tiktokUsername || SettingsManager.get().tiktokUser || ''
+        });
+
+        // Broadcast cookies + username to renderer
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('tiktok:cookies-captured', {
+            ...allCookies,
+            _resolvedUsername: tiktokUsername
+          });
+        }
+
+        // Close auth window
         setTimeout(() => {
           if (tiktokAuthWindow && !tiktokAuthWindow.isDestroyed()) {
             tiktokAuthWindow.close();

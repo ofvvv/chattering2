@@ -16,6 +16,7 @@ let client        = null;
 let activeChannel = null;
 let activeToken   = null;
 let activeUserId  = null;
+let authedUsername = null;   // login of the token holder — needed for tmi.js identity
 let getMainWindow = null;
 
 const CLIENT_ID = 'w2q6ngvevmf1gkuu1ngiqwmyzqmjrt';
@@ -30,16 +31,34 @@ async function connect(channel, token, getWin) {
 
   if (!activeChannel) throw new Error('Canal de Twitch requerido');
 
-  // ── Resolve broadcaster user-id for badge / card fetches ─────────────────
-  try {
-    const headers = {
-      'Authorization': `Bearer ${activeToken}`,
-      'Client-Id':     CLIENT_ID
-    };
-    const res  = await globalThis.fetch(`https://api.twitch.tv/helix/users?login=${activeChannel}`, { headers });
-    const data = await res.json();
-    if (data.data?.[0]) activeUserId = data.data[0].id;
-  } catch (_) {}
+  // ── Resolve authenticated user's login (token holder) + broadcaster id ─────
+  authedUsername = null;
+  if (activeToken) {
+    try {
+      const headers = { 'Authorization': `Bearer ${activeToken}`, 'Client-Id': CLIENT_ID };
+      // Resolve BOTH the authed user (token holder) and the broadcaster in one request
+      const combined = await globalThis.fetch(
+        `https://api.twitch.tv/helix/users?login=${activeChannel}`,
+        { headers }
+      );
+      const combinedData = await combined.json();
+      if (combinedData.data?.[0]) activeUserId = combinedData.data[0].id;
+
+      // Token-holder identity (needed for sending messages)
+      const selfRes  = await globalThis.fetch('https://api.twitch.tv/helix/users', { headers });
+      const selfData = await selfRes.json();
+      if (selfData.data?.[0]) {
+        authedUsername = selfData.data[0].login;
+        console.log(`[Twitch] Authenticated as: ${authedUsername}`);
+      }
+    } catch (err) {
+      console.warn('[Twitch] Helix user resolve failed:', err.message);
+    }
+  }
+  // Fallback: if API failed, use activeChannel as identity (anonymous read-only mode)
+  if (!authedUsername) {
+    console.warn('[Twitch] Could not resolve authed username — chat will be read-only');
+  }
 
   // ── Load channel badges ──────────────────────────────────────────────────
   await loadBadges(activeUserId, activeToken);
@@ -51,8 +70,8 @@ async function connect(channel, token, getWin) {
     channels: [`#${activeChannel}`]
   };
 
-  if (activeToken) {
-    opts.identity = { username: activeChannel, password: `oauth:${activeToken}` };
+  if (activeToken && authedUsername) {
+    opts.identity = { username: authedUsername, password: `oauth:${activeToken}` };
   }
 
   client = new tmi.Client(opts);
@@ -76,12 +95,14 @@ async function connect(channel, token, getWin) {
     broadcast('twitch:timeout', { username, duration });
   });
 
-  client.on('connected', () => {
+  client.on('connected', async () => {
     console.log(`[Twitch] Conectado a #${activeChannel}`);
-    broadcast('twitch:status', { connected: true, channel: activeChannel, userId: activeUserId });
+    await checkStreamLive();
+    startStreamPoll();  // re-check every 2 min
   });
   client.on('disconnected', (reason) => {
     console.log(`[Twitch] Desconectado: ${reason}`);
+    stopStreamPoll();
     broadcast('twitch:status', { connected: false, channel: activeChannel });
   });
 
@@ -296,6 +317,52 @@ function buildBadgeObjects(badges, badgeInfo) {
       : setId.replace(/_/g, ' ');
     return { url, title };
   }).filter(b => b.url);
+}
+
+// ─── Periodic stream poll ────────────────────────────────────────────────────
+let streamPollTimer = null;
+
+function startStreamPoll() {
+  stopStreamPoll();
+  // Re-check every 2 minutes so status reflects reality after stream ends/starts
+  streamPollTimer = setInterval(() => checkStreamLive(), 120_000);
+}
+
+function stopStreamPoll() {
+  if (streamPollTimer) { clearInterval(streamPollTimer); streamPollTimer = null; }
+}
+
+// ─── Stream live check ───────────────────────────────────────────────────────
+// Called right after tmi.js connects. Emits the real status (live vs offline).
+async function checkStreamLive() {
+  // Always emit at least a "connected, auth unknown" state immediately
+  // so the UI responds even if the API call is slow
+  broadcast('twitch:status', { connected: true, idle: true, channel: activeChannel, userId: activeUserId });
+
+  if (!activeToken || !activeUserId) {
+    // No token — can read chat but can't check stream status
+    broadcast('twitch:status', { connected: true, idle: true, channel: activeChannel, userId: activeUserId });
+    return;
+  }
+  try {
+    const headers = { 'Authorization': `Bearer ${activeToken}`, 'Client-Id': CLIENT_ID };
+    const res  = await globalThis.fetch(
+      `https://api.twitch.tv/helix/streams?user_id=${activeUserId}`, { headers }
+    );
+    const data = await res.json();
+    const isLive = Array.isArray(data.data) && data.data.length > 0;
+    console.log(`[Twitch] #${activeChannel} live check: ${isLive ? 'EN VIVO' : 'offline'}`);
+    broadcast('twitch:status', {
+      connected: true,
+      idle:      !isLive,
+      channel:   activeChannel,
+      userId:    activeUserId
+    });
+  } catch (err) {
+    console.warn('[Twitch] checkStreamLive error:', err.message);
+    // On error just show as connected without live info
+    broadcast('twitch:status', { connected: true, idle: true, channel: activeChannel, userId: activeUserId });
+  }
 }
 
 module.exports = {

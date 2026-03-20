@@ -72,6 +72,7 @@ const state = {
   connectedChannels: { twitch: null, tiktok: null, youtube: null },
   tiktokCookies: null,
   tiktokSessionId: null,
+  tiktokUsername: null,    // auto-resolved from cookies
   ttsEnabled: false,
   ttsVoice: null,
   ttsQueue: [],
@@ -123,10 +124,22 @@ function getOrAssignColor(platform, username, providedColor) {
     checkConnections();
     
     console.log('[Chat] Iniciando auto-conexión...');
-    // Auto-connect to Twitch if logged in
     await autoConnectTwitch();
-    // Auto-connect to YouTube if there's a saved channel
     await autoConnectYouTube();
+    // TikTok: if we have both username and sessionId saved, auto-connect on startup
+    const savedTikTokUser = state.settings.tiktokUser;
+    const savedSid        = state.settings.tiktokSessionId;
+    if (savedSid) {
+      state.tiktokSessionId = savedSid;
+      if (savedTikTokUser) {
+        state.tiktokUsername = savedTikTokUser;
+        autoConnectTikTok(savedTikTokUser, savedSid);
+      } else {
+        // Session exists but no username saved — show yellow badge, prompt user
+        setStatusBadge('tiktok', 'warning', 'TikTok: sesión activa (ingresa @usuario)');
+        console.log('[Chat] TikTok: sessionId found but no username saved');
+      }
+    }
     console.log('[Chat] Auto-conexión completada');
   } catch (err) {
     console.error('[Chat] Error en init():', err);
@@ -151,7 +164,7 @@ async function autoConnectTwitch() {
         state.connectedChannels.twitch = userInfo.username;
         addSystemMessage(`Conectado automáticamente a #${userInfo.username} (Twitch)`, 'twitch');
         loadEmotes('twitch', res.userId || userInfo.username);
-        chatInput.placeholder = `Escribe un mensaje en #${userInfo.username}…`;
+        chatInput.placeholder = 'Escribe un mensaje…';
         
         // Hide no-connections popup
         const popup = $('#no-connections-popup');
@@ -182,10 +195,26 @@ async function autoConnectYouTube() {
     if (res && res.connected) {
       state.connectedChannels.youtube = savedChannel;
       addSystemMessage(`Conectado automáticamente a ${savedChannel} (YouTube)`, 'youtube');
-      chatInput.placeholder = `Escribe un mensaje en ${savedChannel}…`;
+      chatInput.placeholder = 'Escribe un mensaje…';
     }
   } catch (err) {
     console.error('[Chat] Error en auto-conexión YouTube:', err);
+  }
+}
+
+// ─── Auto-connect TikTok (called when cookies + username available) ──────────
+async function autoConnectTikTok(username, sessionId) {
+  try {
+    console.log('[Chat] Auto-conectando a TikTok:', username);
+    const res = await window.chattering.tiktok.connect(username, sessionId);
+    if (res && res.connected) {
+      state.connectedChannels.tiktok = username;
+      addSystemMessage(`Conectado a @${username} (TikTok)`, 'tiktok');
+    }
+    // If not live (error thrown), the connector already emitted idle status
+  } catch (err) {
+    // Not live — status badge already set to warning by the error handler
+    console.log('[Chat] TikTok auto-connect:', err.message);
   }
 }
 
@@ -208,6 +237,12 @@ function checkConnections() {
     popup.classList.add('hidden');
   });
   
+  // Show yellow badge for TikTok if we have a saved session on startup
+  const s = state.settings;
+  if ((s.tiktokSessionId || s.tiktokCookies) && !state.tiktokSessionId) {
+    setStatusBadge('tiktok', 'warning', 'TikTok: sesión activa');
+  }
+
   // Hide popup when connected to any platform
   window.chattering.twitch.onStatus((data) => {
     if (data.connected) popup?.classList.add('hidden');
@@ -414,19 +449,23 @@ async function connectPlatform(platform) {
       addSystemMessage(`Conectado a #${channel} (Twitch)`, 'twitch');
       // Load emotes
       loadEmotes('twitch', res.userId || channel);
-      chatInput.placeholder = `Escribe un mensaje en #${channel}…`;
+      chatInput.placeholder = 'Escribe un mensaje…';
 
     } else if (platform === 'tiktok') {
       const tiktokInput = $('#input-tiktok-user');
-      if (!tiktokInput) return showToast('Error: input de TikTok no encontrado', 'error');
-      const username = (tiktokInput.value || '').trim().replace(/^@/, '');
-      if (!username) return showToast('Escribe un usuario de TikTok', 'warning');
-      
-      // Use sessionId from captured cookies or restored settings
+      // Username can come from: input field → state (cookie-resolved) → settings
+      const inputVal = (tiktokInput?.value || '').trim().replace(/^@/, '');
+      const username = inputVal
+        || state.tiktokUsername
+        || state.settings.tiktokUser
+        || '';
+      if (!username) return showToast('Escribe un usuario de TikTok o inicia sesión primero', 'warning');
+
       const sessionId = state.tiktokSessionId
         || state.tiktokCookies?.sessionid
         || state.tiktokCookies?.sessionid_ss
         || null;
+      console.log(`[Chat] Conectando TikTok: @${username}, sessionId: ${sessionId ? 'presente' : 'ausente'}`);
       const res = await window.chattering.tiktok.connect(username, sessionId);
       if (res.error) throw new Error(res.error);
       state.connectedChannels.tiktok = username;
@@ -465,24 +504,47 @@ function registerPlatformListeners() {
     appendEventInChat(data);
   });
   window.chattering.twitch.onStatus(data => {
-    const label = data.connected
-      ? `Twitch: #${data.channel}`
-      : `Twitch: desconectado`;
-    setStatusBadge('twitch', data.connected ? 'connected' : 'error', label);
+    let status, label;
+    if (data.connected && !data.idle) {
+      status = 'connected';
+      label  = `Twitch: #${data.channel} • En vivo`;
+    } else if (data.connected && data.idle) {
+      status = 'warning';
+      label  = `Twitch: #${data.channel} (offline)`;
+    } else {
+      status = 'error';
+      label  = 'Twitch: desconectado';
+    }
+    setStatusBadge('twitch', status, label);
   });
 
   // TikTok cookies
   window.chattering.tiktok.onCookiesCaptured(cookies => {
-    state.tiktokCookies = cookies;
-    state.tiktokSessionId = cookies.sessionid || cookies.sessionid_ss || null;
+    // _resolvedUsername is injected by main.js alongside the cookie map
+    const resolvedUser = cookies._resolvedUsername || null;
+    delete cookies._resolvedUsername;  // don't pollute the cookie map
+
+    state.tiktokCookies    = cookies;
+    state.tiktokSessionId  = cookies.sessionid || cookies.sessionid_ss || null;
+    state.tiktokUsername   = resolvedUser || state.tiktokUsername;
+
     window.chattering.tiktok.setCookies(cookies);
-    showToast('Sesión TikTok capturada', 'success');
+
+    const label = resolvedUser ? `TikTok: @${resolvedUser}` : 'TikTok: sesión activa';
+    setStatusBadge('tiktok', 'warning', label);
+    showToast('Sesión TikTok capturada' + (resolvedUser ? ` como @${resolvedUser}` : ''), 'success');
+
+    // Auto-connect if we know the username (user connecting to their own stream)
+    if (resolvedUser && state.tiktokSessionId) {
+      autoConnectTikTok(resolvedUser, state.tiktokSessionId);
+    }
   });
-  // Restored sessionId from settings on startup (no cookies in session)
   window.chattering.tiktok.onSessionRestored?.(data => {
     if (data?.sessionId) {
       state.tiktokSessionId = data.sessionId;
-      console.log('[Chat] TikTok sessionId restaurado desde settings');
+      const savedUser = state.settings.tiktokUser || state.tiktokUsername;
+      const label = savedUser ? `TikTok: @${savedUser}` : 'TikTok: sesión activa';
+      setStatusBadge('tiktok', 'warning', label);
     }
   });
   window.chattering.tiktok.onMessage(data => {
@@ -494,8 +556,11 @@ function registerPlatformListeners() {
     appendEventInChat(data);
   });
   window.chattering.tiktok.onStatus(data => {
-    setStatusBadge('tiktok', data.connected ? 'connected' : 'error',
-      data.connected ? `TikTok: @${data.channel}` : 'TikTok: desconectado');
+    const s = data.connected ? 'connected' : data.idle ? 'warning' : 'error';
+    const l = data.connected ? `TikTok: @${data.channel}`
+            : data.idle      ? `TikTok: @${data.channel} (offline)`
+            : 'TikTok: desconectado';
+    setStatusBadge('tiktok', s, l);
   });
 
   // YouTube
@@ -508,8 +573,11 @@ function registerPlatformListeners() {
     appendEventInChat(data);
   });
   window.chattering.youtube.onStatus(data => {
-    setStatusBadge('youtube', data.connected ? 'connected' : 'error',
-      data.connected ? `YouTube: ${data.channel}` : 'YouTube: desconectado');
+    const s = data.connected ? 'connected' : data.idle ? 'warning' : 'error';
+    const l = data.connected ? `YouTube: ${data.channel}`
+            : data.idle      ? `YouTube: ${data.channel} (sin live)`
+            : 'YouTube: desconectado';
+    setStatusBadge('youtube', s, l);
   });
 
   // App-level notifications
@@ -587,7 +655,10 @@ function appendChatMessage(msg) {
       row.appendChild(badgeWrap);
     }
 
-    // Author
+    // Group author + sep + content so long messages wrap under the author name
+    const bodyWrap = document.createElement('span');
+    bodyWrap.className = 'msg-body-wrap';
+
     const author = document.createElement('span');
     author.className = 'msg-author';
     author.style.color = displayColor;
@@ -596,18 +667,19 @@ function appendChatMessage(msg) {
       e.stopPropagation();
       openUserCard(e, username, displayName, platform, displayColor, badges, msg.avatarUrl || '');
     });
-    row.appendChild(author);
+    bodyWrap.appendChild(author);
 
     const sep = document.createElement('span');
     sep.className = 'msg-sep';
     sep.textContent = isAction ? '' : ':';
-    row.appendChild(sep);
+    bodyWrap.appendChild(sep);
 
-    // Message content with emotes (platform-scoped, with YouTube custom emoji support)
     const content = document.createElement('span');
     content.className = 'msg-content';
     content.appendChild(renderMessageContent(message, emotes, bits, platform, msg.ytEmoteMap || {}));
-    row.appendChild(content);
+    bodyWrap.appendChild(content);
+
+    row.appendChild(bodyWrap);
 
     // Apply chat filter if active
     if (shouldFilterMessage(msg)) {
@@ -1364,7 +1436,7 @@ function ttsProcessQueue() {
 function setStatusBadge(platform, status, label) {
   const badge = $(`#status-${platform}`);
   if (!badge) return;
-  badge.classList.remove('hidden', 'connected', 'error', 'connecting');
+  badge.classList.remove('hidden', 'connected', 'error', 'connecting', 'warning');
   badge.classList.add(status);
   badge.querySelector('.status-label').textContent = label;
 }

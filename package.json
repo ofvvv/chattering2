@@ -1,50 +1,89 @@
 {
   "name": "chattering",
-  "version": "1.0.0",
-  "description": "Unified multi-platform chat client for streamers",
+  "version": "0.5.0-beta",
+  "description": "Multi-platform live chat viewer — Twitch · YouTube · TikTok",
   "main": "main.js",
-  "private": true,
+  "author": "ofvvv",
+  "license": "MIT",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "build": "electron-builder",
-    "lint": "eslint src --ext .js",
-    "typecheck": "echo 'No TypeScript in this project'"
+    "build:win": "taskkill /F /IM chattering.exe /T 2>nul & electron-builder --win --publish never",
+    "build:win:publish": "electron-builder --win --publish always",
+    "build:mac": "electron-builder --mac --publish never",
+    "build:linux": "electron-builder --linux --publish never"
   },
   "dependencies": {
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.3.9",
     "tmi.js": "^1.8.5",
-    "tiktok-live-connector": "^1.1.9",
-    "youtube-chat": "^2.0.2",
-    "electron-store": "^8.1.0",
-    "ws": "^8.18.0",
-    "node-fetch": "^3.3.2"
+    "tiktok-live-connector": "^1.1.21",
+    "youtube-chat": "^2.1.1"
   },
   "devDependencies": {
-    "electron": "^33.2.0",
-    "electron-builder": "^25.1.8",
-    "eslint": "^9.39.1"
+    "electron": "^29.0.0",
+    "electron-builder": "^26.8.1"
   },
   "build": {
-    "appId": "com.chattering.app",
+    "appId": "com.ofvvv.chattering",
     "productName": "Chattering",
+    "copyright": "Copyright © 2025 ofvvv",
+    "asar": true,
+    "icon": "assets/icons/chattering",
+    "files": [
+      "**/*",
+      "!**/*.md",
+      "!**/node_modules/.cache/**",
+      "!build/**"
+    ],
+    "extraResources": [
+      {
+        "from": "server/",
+        "to": "server/",
+        "filter": ["**/*"]
+      }
+    ],
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "assets/icons"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "ofvvv",
+      "repo": "chattering2",
+      "releaseType": "release"
     },
     "win": {
-      "target": "nsis",
-      "icon": "assets/icons/icon.ico"
-    },
-    "linux": {
-      "target": "AppImage",
-      "icon": "assets/icons/icon.png"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icons/chattering.ico"
     },
     "mac": {
       "target": "dmg",
-      "icon": "assets/icons/icon.icns"
+      "icon": "assets/icons/chattering.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icons/chattering.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "installerIcon": "assets/icons/chattering.ico",
+      "uninstallerIcon": "assets/icons/chattering.ico",
+      "installerHeaderIcon": "assets/icons/chattering.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Chattering",
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "displayLanguageSelector": false,
+      "language": "3082"
     }
-  },
-  "trustedDependencies": [
-    "es5-ext",
-    "protobufjs"
-  ]
+  }
 }

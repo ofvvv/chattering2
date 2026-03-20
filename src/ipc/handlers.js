@@ -89,13 +89,12 @@ function register(ipcMain, ctx) {
 
   // ── Twitch ─────────────────────────────────────────────────────────────────
   ipcMain.handle('twitch:connect', async (_e, channel, token) => {
-    console.log('[IPC] twitch:connect llamado con channel:', channel, 'token:', token ? 'presente' : 'ausente');
+    const _settings = SettingsManager.get();
+    const tokenToUse = token || _settings.twitchToken || null;
+    console.log('[IPC] twitch:connect channel:', channel, '| token recibido:', token ? 'sí' : 'no', '| token efectivo:', tokenToUse ? 'sí' : 'no');
     try {
-      // If no channel provided, try to get it from settings (saved channel) or use empty
-      const settings = SettingsManager.get();
-      const channelToUse = channel || settings.twitchChannel || null;
-      
-      const result = await TwitchConnector.connect(channelToUse, token, getMainWindow);
+      const channelToUse = channel || _settings.twitchChannel || null;
+      const result = await TwitchConnector.connect(channelToUse, tokenToUse, getMainWindow);
       console.log('[IPC] twitch:connect resultado:', result);
       return result;
     } catch (err) {
