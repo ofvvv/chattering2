@@ -477,6 +477,7 @@ body {
   gap: 6px;
   box-shadow: var(--shadow);
 }
+#filters-dropdown.hidden { display: none !important; }
 
 .status-badge {
   display: flex;
@@ -1350,7 +1351,9 @@ body.show-timestamps .msg-timestamp { display: inline; }
   gap: 5px;
   box-shadow: var(--shadow);
 }
-#dock-filter-dropdown.hidden { display: none !important; }
+/* Must override display:flex from the rule above */
+#dock-filter-dropdown.hidden,
+.hidden#dock-filter-dropdown { display: none !important; }
 
 .filter-group-label {
   font-size: 9px;

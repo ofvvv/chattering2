@@ -77,7 +77,8 @@ const state = {
   ttsVoice: null,
   ttsQueue: [],
   ttsBusy: false,
-  MAX_MESSAGES: 500
+  MAX_MESSAGES: 500,
+  dockFilters: []          // active event type filters for the dock
 };
 
 // Palette for YouTube/TikTok user colours (same set Twitch uses as defaults)
@@ -541,7 +542,10 @@ function registerPlatformListeners() {
     window.chattering.tiktok.setCookies(cookies);
 
     const label = resolvedUser ? `TikTok: @${resolvedUser}` : 'TikTok: sesión activa';
-    setStatusBadge('tiktok', 'warning', label);
+    const _badge = document.getElementById('status-tiktok');
+    if (!_badge?.classList.contains('connected')) {
+      setStatusBadge('tiktok', 'warning', label);
+    }
     showToast('Sesión TikTok capturada' + (resolvedUser ? ` como @${resolvedUser}` : ''), 'success');
 
     // Auto-connect if we know the username (user connecting to their own stream)
@@ -552,9 +556,14 @@ function registerPlatformListeners() {
   window.chattering.tiktok.onSessionRestored?.(data => {
     if (data?.sessionId) {
       state.tiktokSessionId = data.sessionId;
-      const savedUser = state.settings.tiktokUser || state.tiktokUsername;
-      const label = savedUser ? `TikTok: @${savedUser}` : 'TikTok: sesión activa';
-      setStatusBadge('tiktok', 'warning', label);
+      // Only show yellow if not already fully connected (green)
+      const badge = document.getElementById('status-tiktok');
+      const alreadyConnected = badge?.classList.contains('connected');
+      if (!alreadyConnected) {
+        const savedUser = state.settings.tiktokUser || state.tiktokUsername;
+        const label = savedUser ? `TikTok: @${savedUser}` : 'TikTok: sesión activa';
+        setStatusBadge('tiktok', 'warning', label);
+      }
     }
   });
   window.chattering.tiktok.onMessage(data => {
