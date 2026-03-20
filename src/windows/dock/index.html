@@ -8,11 +8,13 @@
   <link rel="stylesheet" href="dock.css">
 </head>
 <body class="theme-dark">
-  <!-- Events dock - floating window version -->
-  <aside id="events-dock" class="dock-float">
+  <aside id="events-dock" class="dock-float" style="position:relative;">
     <div id="dock-header">
       <span>Eventos</span>
       <div id="dock-controls">
+        <button id="btn-dock-filter" class="dock-btn" title="Filtrar eventos">
+          <svg viewBox="0 0 24 24"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6zm3 7h12v-2H6v2z"/></svg>
+        </button>
         <button id="btn-dock-top" class="dock-btn" title="Mover arriba">
           <svg viewBox="0 0 24 24"><path d="M7 14l5-5 5 5z"/></svg>
         </button>
@@ -34,7 +36,20 @@
           </button>
         </div>
       </div>
+      <!-- Filter dropdown inside header for positioning -->
+      <div id="dock-filter-dropdown" class="hidden">
+        <button class="filter-chip" data-filter-event="follow">Follows 💙</button>
+        <button class="filter-chip" data-filter-event="sub">Subs ⭐</button>
+        <button class="filter-chip" data-filter-event="gift">Regalos 🎁</button>
+        <button class="filter-chip" data-filter-event="bits">Bits 💎</button>
+        <button class="filter-chip" data-filter-event="raid">Raids 🚀</button>
+        <button class="filter-chip" data-filter-event="like">Likes ❤️</button>
+        <button class="filter-chip" data-filter-event="share">Shares 🔁</button>
+        <button class="filter-chip" data-filter-event="superchat">Superchats 💛</button>
+        <button id="btn-clear-dock-filters" class="filter-chip">Limpiar todo</button>
+      </div>
     </div>
+
     <div id="dock-events" role="log" aria-live="polite"></div>
   </aside>
 

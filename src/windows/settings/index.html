@@ -357,10 +357,24 @@
             <span class="connection-status" id="status-tiktok">Desconectado</span>
           </div>
           <div class="account-body">
-            <p class="account-description">Inicia sesión en TikTok para conectar con lives.</p>
+            <p class="account-description">
+              Ingresa el @usuario del creador cuyo live quieres ver.
+              Opcionalmente inicia sesión para autenticarte (experimental).
+            </p>
+            <!-- Username input — primary connection method -->
+            <div class="setting-group">
+              <input type="text" class="setting-input" id="txt-tiktok-user"
+                data-key="tiktokUser" placeholder="@usuario" autocomplete="off" />
+            </div>
             <div class="account-actions">
-              <button class="btn-account" id="btn-tiktok-login">
-                <span class="btn-icon">🔗</span> Iniciar sesión
+              <!-- Connect by username — primary action -->
+              <button class="btn-account" id="btn-tiktok-connect">
+                <span class="btn-icon">▶</span> Conectar
+              </button>
+              <!-- Login — secondary, grayed out pending reliability improvement -->
+              <button class="btn-account" id="btn-tiktok-login"
+                style="opacity:0.45;cursor:not-allowed;" title="Funcionalidad experimental">
+                <span class="btn-icon">🔗</span> Login (exp.)
               </button>
               <button class="btn-account danger hidden" id="btn-tiktok-logout">
                 <span class="btn-icon">🗑</span> Cerrar sesión

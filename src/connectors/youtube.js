@@ -3,6 +3,11 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    Chattering – YouTube Live Chat Connector
    ─────────────────────────────────────────────────────────────────────────
+   ⚠️  DO NOT MODIFY THE CHAT/MESSAGE ENGINE ⚠️
+       getLiveVideoIdFromRenderer, getLiveVideoIdFromNode, connect(),
+       and the chat.on('chat') handler are working correctly.
+       Only touch emitStatus, error handling, or event types.
+
    Uses youtube-chat library to connect to YouTube Live streams.
    Handles both @handles and channel IDs.
 

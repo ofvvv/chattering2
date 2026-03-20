@@ -234,6 +234,13 @@ function register(ipcMain, ctx) {
       dockWin.webContents.send('dock:event', event);
     }
   });
+
+  ipcMain.on('dock:clearEvents', () => {
+    const dockWin = getDockWindow();
+    if (dockWin && !dockWin.isDestroyed()) {
+      dockWin.webContents.send('dock:clear');
+    }
+  });
   // ── User Card ──────────────────────────────────────────────────────────────
   ipcMain.handle('usercard:open', (_e, data) => {
     const { screenX, screenY, ...cardData } = data;

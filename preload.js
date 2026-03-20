@@ -36,10 +36,10 @@ contextBridge.exposeInMainWorld('chattering', {
     getUserCard:   (channel, user) => ipcRenderer.invoke('twitch:getUserCard', channel, user),
     sendMessage:   (channel, msg) => ipcRenderer.invoke('twitch:sendMessage', channel, msg),
     getUser:       () => ipcRenderer.invoke('twitch:getUser'),
-    onMessage:     (cb) => ipcRenderer.on('twitch:message', (_e, data) => cb(data)),
-    onEvent:       (cb) => ipcRenderer.on('twitch:event', (_e, data) => cb(data)),
-    onStatus:      (cb) => ipcRenderer.on('twitch:status', (_e, data) => cb(data)),
-    onOAuthCaptured: (cb) => ipcRenderer.on('twitch:oauth-captured', (_e, data) => cb(data))
+    onMessage:     (cb) => { ipcRenderer.removeAllListeners('twitch:message'); ipcRenderer.on('twitch:message', (_e, data) => cb(data)); },
+    onEvent:       (cb) => { ipcRenderer.removeAllListeners('twitch:event'); ipcRenderer.on('twitch:event', (_e, data) => cb(data)); },
+    onStatus:      (cb) => { ipcRenderer.removeAllListeners('twitch:status'); ipcRenderer.on('twitch:status', (_e, data) => cb(data)); },
+    onOAuthCaptured: (cb) => { ipcRenderer.removeAllListeners('twitch:oauth-captured'); ipcRenderer.on('twitch:oauth-captured', (_e, data) => cb(data)); }
   },
 
   // ── TikTok ─────────────────────────────────────────────────────────────────
@@ -48,18 +48,18 @@ contextBridge.exposeInMainWorld('chattering', {
     setCookies:    (cookies) => ipcRenderer.send('tiktok:setCookies', cookies),
     connect:        (username, sessionId) => ipcRenderer.invoke('tiktok:connect', username, sessionId),
     disconnect:     () => ipcRenderer.invoke('tiktok:disconnect'),
-    onMessage:      (cb) => ipcRenderer.on('tiktok:message', (_e, data) => cb(data)),
-    onEvent:        (cb) => ipcRenderer.on('tiktok:event', (_e, data) => cb(data)),
-    onStatus:       (cb) => ipcRenderer.on('tiktok:status', (_e, data) => cb(data)),
+    onMessage:      (cb) => { ipcRenderer.removeAllListeners('tiktok:message'); ipcRenderer.on('tiktok:message', (_e, data) => cb(data)); },
+    onEvent:        (cb) => { ipcRenderer.removeAllListeners('tiktok:event'); ipcRenderer.on('tiktok:event', (_e, data) => cb(data)); },
+    onStatus:       (cb) => { ipcRenderer.removeAllListeners('tiktok:status'); ipcRenderer.on('tiktok:status', (_e, data) => cb(data)); },
     onCookiesCaptured:    (cb) => ipcRenderer.on('tiktok:cookies-captured',  (_e, data) => cb(data)),
-    onSessionRestored:   (cb) => ipcRenderer.on('tiktok:session-restored', (_e, data) => cb(data))
+    onSessionRestored:   (cb) => { ipcRenderer.removeAllListeners('tiktok:session-restored'); ipcRenderer.on('tiktok:session-restored', (_e, data) => cb(data)); }
   },
 
   // ── YouTube ────────────────────────────────────────────────────────────────
   youtube: {
     connect:    (channelId) => ipcRenderer.invoke('youtube:connect', channelId),
     disconnect: () => ipcRenderer.invoke('youtube:disconnect'),
-    onMessage:  (cb) => ipcRenderer.on('youtube:message', (_e, data) => cb(data)),
+    onMessage:  (cb) => { ipcRenderer.removeAllListeners('youtube:message'); ipcRenderer.on('youtube:message', (_e, data) => cb(data)); },
     onEvent:    (cb) => ipcRenderer.on('youtube:event',   (_e, data) => cb(data)),
     onStatus:   (cb) => ipcRenderer.on('youtube:status',  (_e, data) => cb(data))
   },
@@ -85,12 +85,13 @@ contextBridge.exposeInMainWorld('chattering', {
     clearEvents:  () => ipcRenderer.send('dock:clearEvents'),
     addEvent:     (event) => ipcRenderer.send('dock:addEvent', event),
     // Listen for events from main process
-    _onDockEvent: (cb) => ipcRenderer.on('dock:event', (_e, data) => cb(data)),
-    _onDockClear: (cb) => ipcRenderer.on('dock:clearEvents', (_e, data) => cb(data)),
+    _onDockEvent:  (cb) => { ipcRenderer.removeAllListeners('dock:event');  ipcRenderer.on('dock:event',  (_e, data) => cb(data)); },
+    _onDockClear:  (cb) => { ipcRenderer.removeAllListeners('dock:clear');  ipcRenderer.on('dock:clear',  (_e)       => cb());     },
+    _onDockClear: (cb) => { ipcRenderer.removeAllListeners('dock:clearEvents'); ipcRenderer.on('dock:clearEvents', (_e, data) => cb(data)); },
     // Listen for dock window closed
-    _onDockClosed: (cb) => ipcRenderer.on('dock:closed', (_e, data) => cb(data)),
+    _onDockClosed: (cb) => { ipcRenderer.removeAllListeners('dock:closed'); ipcRenderer.on('dock:closed', (_e, data) => cb(data)); },
     // Listen for dock position changed
-    _onPositionChanged: (cb) => ipcRenderer.on('dock:positionChanged', (_e, data) => cb(data))
+    _onPositionChanged: (cb) => { ipcRenderer.removeAllListeners('dock:positionChanged'); ipcRenderer.on('dock:positionChanged', (_e, data) => cb(data)); }
   },
 
   // ── TTS ────────────────────────────────────────────────────────────────────
@@ -100,7 +101,7 @@ contextBridge.exposeInMainWorld('chattering', {
   },
 
   // ── Settings live updates ──────────────────────────────────────────────────
-  _onSettingsUpdated: (cb) => ipcRenderer.on('settings:updated', (_e, data) => cb(data)),
+  _onSettingsUpdated: (cb) => { ipcRenderer.removeAllListeners('settings:updated'); ipcRenderer.on('settings:updated', (_e, data) => cb(data)); },
 
   // ── Utility ────────────────────────────────────────────────────────────────
   removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel)

@@ -3,9 +3,22 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    Chattering – Twitch Connector
    ─────────────────────────────────────────────────────────────────────────
-   Uses tmi.js for chat + Helix API for badges / user cards / moderation.
-   Moderation actions (ban / timeout / unban / delete) use the tmi.js
-   client directly — the bot must be a mod or the broadcaster.
+   ⚠️  DO NOT MODIFY THE CHAT/MESSAGE ENGINE ⚠️
+       tmi.js connection, message reception, and sendMessage are working
+       correctly. Changes to connect(), onMessage(), or sendMessage() will
+       break chat. Only touch moderation, badges, or stream-status sections.
+
+   Uses tmi.js for chat (IRC) + Helix API for badges, user cards
+   and ALL moderation actions (ban/timeout/unban/delete).
+
+   Moderation uses Helix, not tmi.js IRC commands, because IRC commands
+   return "No response from Twitch" when the server doesn't send a NOTICE
+   back — which happens unpredictably. Helix moderation is synchronous,
+   returns proper HTTP errors, and doesn't require IRC confirmation.
+
+   Required OAuth scopes for moderation:
+     moderator:manage:banned_users  (ban / unban / timeout)
+     moderator:manage:chat_messages (delete message)
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const tmi        = require('tmi.js');
@@ -31,50 +44,47 @@ async function connect(channel, token, getWin) {
 
   if (!activeChannel) throw new Error('Canal de Twitch requerido');
 
-  // ── Resolve authenticated user's login (token holder) + broadcaster id ─────
-  authedUsername = null;
-  if (activeToken) {
-    try {
-      const headers = { 'Authorization': `Bearer ${activeToken}`, 'Client-Id': CLIENT_ID };
-      // Resolve BOTH the authed user (token holder) and the broadcaster in one request
-      const combined = await globalThis.fetch(
-        `https://api.twitch.tv/helix/users?login=${activeChannel}`,
-        { headers }
-      );
-      const combinedData = await combined.json();
-      if (combinedData.data?.[0]) activeUserId = combinedData.data[0].id;
+  // ── Start tmi.js IMMEDIATELY — API calls run in parallel, never blocking IRC ─
+  // For streamers on their own channel, activeChannel == their login, so identity
+  // works right away without waiting for the Helix self-lookup.
+  authedUsername = activeChannel; // best-guess until Helix resolves
 
-      // Token-holder identity (needed for sending messages)
-      const selfRes  = await globalThis.fetch('https://api.twitch.tv/helix/users', { headers });
-      const selfData = await selfRes.json();
-      if (selfData.data?.[0]) {
-        authedUsername = selfData.data[0].login;
-        console.log(`[Twitch] Authenticated as: ${authedUsername}`);
-      }
-    } catch (err) {
-      console.warn('[Twitch] Helix user resolve failed:', err.message);
-    }
-  }
-  // Fallback: if API failed, use activeChannel as identity (anonymous read-only mode)
-  if (!authedUsername) {
-    console.warn('[Twitch] Could not resolve authed username — chat will be read-only');
-  }
-
-  // ── Load channel badges ──────────────────────────────────────────────────
-  await loadBadges(activeUserId, activeToken);
-
-  // ── Create tmi.js client ─────────────────────────────────────────────────
   const opts = {
-    options: { debug: false, skipUpdatingEmotesets: true },
+    options:    { debug: false, skipUpdatingEmotesets: true },
     connection: { secure: true, reconnect: true },
-    channels: [`#${activeChannel}`]
+    channels:   [`#${activeChannel}`]
   };
 
-  if (activeToken && authedUsername) {
-    opts.identity = { username: authedUsername, password: `oauth:${activeToken}` };
+  if (activeToken) {
+    opts.identity = { username: activeChannel, password: `oauth:${activeToken}` };
   }
 
   client = new tmi.Client(opts);
+
+  // ── Helix API calls — fire in background, do NOT block tmi.js ─────────────
+  if (activeToken) {
+    (async () => {
+      try {
+        const headers = { 'Authorization': `Bearer ${activeToken}`, 'Client-Id': CLIENT_ID };
+        // Parallel: broadcaster ID + authed user + badges
+        const [chanRes, selfRes] = await Promise.all([
+          globalThis.fetch(`https://api.twitch.tv/helix/users?login=${activeChannel}`, { headers }),
+          globalThis.fetch('https://api.twitch.tv/helix/users', { headers })
+        ]);
+        const [chanData, selfData] = await Promise.all([chanRes.json(), selfRes.json()]);
+        if (chanData.data?.[0]) activeUserId = chanData.data[0].id;
+        if (selfData.data?.[0]) {
+          authedUsername = selfData.data[0].login;
+          // Update identity if we're already connected
+          console.log(`[Twitch] Authenticated as: ${authedUsername}`);
+        }
+        // Load badges now that we have the broadcaster ID
+        loadBadges(activeUserId, activeToken); // intentionally not awaited
+      } catch (err) {
+        console.warn('[Twitch] Background Helix resolve failed:', err.message);
+      }
+    })();
+  }
 
   // ── Events ───────────────────────────────────────────────────────────────
   client.on('message', onMessage);
@@ -217,31 +227,59 @@ function onRedemption(channel, username, rewardType, tags, message) {
   });
 }
 
-// ─── Moderation ───────────────────────────────────────────────────────────────
-// tmi.js handles these natively — the authed user must be broadcaster or mod.
+// ─── Moderation (Helix API — NOT tmi.js IRC) ─────────────────────────────────
+// tmi.js IRC commands (/ban, /timeout) fail with "No response from Twitch"
+// because the server doesn't always send a NOTICE confirmation back.
+// The Helix REST API is synchronous and returns proper HTTP errors.
+
+async function resolveUserId(userLogin) {
+  if (!activeToken) throw new Error('No token disponible');
+  const headers = { 'Authorization': `Bearer ${activeToken}`, 'Client-Id': CLIENT_ID };
+  const res  = await globalThis.fetch(`https://api.twitch.tv/helix/users?login=${userLogin}`, { headers });
+  const data = await res.json();
+  const id   = data.data?.[0]?.id;
+  if (!id) throw new Error(`Usuario "${userLogin}" no encontrado en Twitch`);
+  return id;
+}
+
+async function helixMod(method, path, body = null) {
+  if (!activeToken || !activeUserId) throw new Error('No autenticado como moderador');
+  const headers = {
+    'Authorization': `Bearer ${activeToken}`,
+    'Client-Id':     CLIENT_ID,
+    'Content-Type':  'application/json'
+  };
+  const opts = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await globalThis.fetch(`https://api.twitch.tv/helix/${path}`, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `HTTP ${res.status}`);
+  }
+  return res.status === 204 ? null : res.json();
+}
 
 async function ban(channel, user, reason = '') {
-  if (!client) throw new Error('No conectado a Twitch');
-  const ch = channel.startsWith('#') ? channel : `#${channel}`;
-  await client.ban(ch, user, reason || undefined);
+  const targetId = await resolveUserId(user);
+  await helixMod('POST', `moderation/bans?broadcaster_id=${activeUserId}&moderator_id=${activeUserId}`, {
+    data: { user_id: targetId, reason: reason || 'Moderación' }
+  });
 }
 
 async function timeout(channel, user, seconds = 600, reason = '') {
-  if (!client) throw new Error('No conectado a Twitch');
-  const ch = channel.startsWith('#') ? channel : `#${channel}`;
-  await client.timeout(ch, user, seconds, reason || undefined);
+  const targetId = await resolveUserId(user);
+  await helixMod('POST', `moderation/bans?broadcaster_id=${activeUserId}&moderator_id=${activeUserId}`, {
+    data: { user_id: targetId, duration: seconds, reason: reason || 'Moderación' }
+  });
 }
 
 async function unban(channel, user) {
-  if (!client) throw new Error('No conectado a Twitch');
-  const ch = channel.startsWith('#') ? channel : `#${channel}`;
-  await client.unban(ch, user);
+  const targetId = await resolveUserId(user);
+  await helixMod('DELETE', `moderation/bans?broadcaster_id=${activeUserId}&moderator_id=${activeUserId}&user_id=${targetId}`);
 }
 
 async function deleteMessage(channel, msgId) {
-  if (!client) throw new Error('No conectado a Twitch');
-  const ch = channel.startsWith('#') ? channel : `#${channel}`;
-  await client.deletemessage(ch, msgId);
+  await helixMod('DELETE', `moderation/chat?broadcaster_id=${activeUserId}&moderator_id=${activeUserId}&message_id=${msgId}`);
 }
 
 async function sendMessage(channel, message) {

@@ -46,12 +46,14 @@ function startOAuthServer() {
           
           // Save token to settings
           SettingsManager.set({ twitchToken: accessToken });
-          console.log('[OAuth Server] ✅ Token saved to settings');
+          console.log('[OAuth Server] ✅ Token saved to settings. Length:', accessToken.length);
           
-          // Notify main window
+          // Notify main window and auto-connect
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('twitch:oauth-captured', { token: accessToken });
             console.log('[OAuth Server] ✅ Notification sent to main window');
+          } else {
+            console.warn('[OAuth Server] Main window not available to notify');
           }
           
           // Return empty response for the image request
@@ -115,9 +117,21 @@ function startOAuthServer() {
       }
     });
     
-    // Listen on all interfaces for localhost and 127.0.0.1
+    oauthServer.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.warn('[OAuth Server] Port 3000 in use — trying port 3001');
+        oauthServer.listen(3001, '0.0.0.0', () => {
+          console.log('[OAuth Server] Running on port 3001');
+          resolve();
+        });
+      } else {
+        console.error('[OAuth Server] Error:', err.message);
+        resolve(); // resolve anyway so app continues
+      }
+    });
+
     oauthServer.listen(3000, '0.0.0.0', () => {
-      console.log('[OAuth Server] Running on http://localhost:3000 and http://127.0.0.1:3000');
+      console.log('[OAuth Server] Running on http://localhost:3000');
       resolve();
     });
   });

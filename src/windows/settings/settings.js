@@ -224,11 +224,16 @@ function setupWindowButtons() {
 
   // ── YouTube Connect ──────────────────────────────────────────────────────────
   $('#btn-youtube-connect')?.addEventListener('click', async () => {
-    console.log('[Settings] YouTube connect clicked');
-    const channelId = $('#txt-yt-channel')?.value;
+    let channelId = ($('#txt-yt-channel')?.value || '').trim();
     if (!channelId) {
-      alert('Por favor ingresa un canal de YouTube');
+      showToast('Por favor ingresa un canal de YouTube', 'warning');
       return;
+    }
+    // Force @ prefix if it looks like a handle (not a channel ID starting with UC)
+    if (!channelId.startsWith('@') && !channelId.startsWith('UC')) {
+      channelId = '@' + channelId;
+      const inp = $('#txt-yt-channel');
+      if (inp) inp.value = channelId;
     }
     // Save the channel first
     await window.chattering.settings.set({ youtubeChannel: channelId });
@@ -253,6 +258,35 @@ function setupWindowButtons() {
     updateConnectionStatus('youtube', false);
   });
 
+  // TikTok connect by username (primary method)
+  $('#btn-tiktok-connect')?.addEventListener('click', async () => {
+    const usernameEl = $('#txt-tiktok-user');
+    const username   = (usernameEl?.value || '').trim().replace(/^@/, '');
+    if (!username) {
+      showToast('Escribe un @usuario de TikTok', 'warning');
+      return;
+    }
+    await window.chattering.settings.set({ tiktokUser: username });
+    currentSettings.tiktokUser = username;
+    showSaved();
+    updateConnectionStatus('tiktok', false, 'Conectando…');
+    try {
+      const sessionId = currentSettings.tiktokSessionId || null;
+      await window.chattering.tiktok.connect(username, sessionId);
+      updateConnectionStatus('tiktok', true, `@${username}`);
+    } catch (e) {
+      // Not live right now — yellow badge, not error
+      updateConnectionStatus('tiktok', false, `@${username} (sin live)`);
+      showToast(`TikTok @${username}: ${e.message}`, 'info');
+    }
+  });
+
+  // Allow Enter on the username input
+  $('#txt-tiktok-user')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') $('#btn-tiktok-connect')?.click();
+  });
+
+  // TikTok login (experimental — opens browser window)
   $('#btn-tiktok-login')?.addEventListener('click', () => {
     window.chattering.tiktok.openAuthWindow();
     showToast('Abre TikTok, inicia sesión. La ventana se cerrará automáticamente.', 'info');

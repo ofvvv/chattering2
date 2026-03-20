@@ -146,14 +146,21 @@ function onChat(data) {
 }
 function onGift(data) {
   if (data.giftType === 1 && !data.repeatEnd) return;
-  broadcast('tiktok:event', { type:'gift', platform:'tiktok',
-    username: data.uniqueId, displayName: data.nickname || data.uniqueId,
-    amount: data.repeatCount || 1, message: data.giftName || '',
-    giftName: data.giftName, giftImg: data.giftPictureUrl });
+  broadcast('tiktok:event', {
+    type: 'gift', platform: 'tiktok',
+    username:    data.uniqueId,
+    displayName: data.nickname || data.uniqueId,
+    amount:      data.repeatCount || 1,
+    giftName:    data.giftName || '',
+    message:     data.giftName || '',  // used as label
+    giftImg:     data.giftPictureUrl
+  });
 }
 function onLike(data) {
+  // likeCount = likes in this batch; totalLikeCount = stream total
+  const amount = data.likeCount || data.totalLikeCount || 1;
   broadcast('tiktok:event', { type:'like', platform:'tiktok',
-    username: data.uniqueId, displayName: data.nickname || data.uniqueId, amount: data.likeCount || 1 });
+    username: data.uniqueId, displayName: data.nickname || data.uniqueId, amount });
 }
 function onFollow(data) {
   broadcast('tiktok:event', { type:'follow', platform:'tiktok',
@@ -167,9 +174,8 @@ function onSubscribe(data) {
   broadcast('tiktok:event', { type:'sub', platform:'tiktok',
     username: data.uniqueId, displayName: data.nickname || data.uniqueId });
 }
-function onMember(data) {
-  broadcast('tiktok:event', { type:'member', platform:'tiktok',
-    username: data.uniqueId, displayName: data.nickname || data.uniqueId });
+function onMember(_data) {
+  // "member" = user entered the stream — not actionable, ignore
 }
 function onStreamEnd() {
   emitStatus(false, 'Stream terminado', true);

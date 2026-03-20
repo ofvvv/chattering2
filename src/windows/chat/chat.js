@@ -124,22 +124,32 @@ function getOrAssignColor(platform, username, providedColor) {
     checkConnections();
     
     console.log('[Chat] Iniciando auto-conexión...');
-    await autoConnectTwitch();
-    await autoConnectYouTube();
-    // TikTok: if we have both username and sessionId saved, auto-connect on startup
-    const savedTikTokUser = state.settings.tiktokUser;
-    const savedSid        = state.settings.tiktokSessionId;
-    if (savedSid) {
-      state.tiktokSessionId = savedSid;
-      if (savedTikTokUser) {
-        state.tiktokUsername = savedTikTokUser;
-        autoConnectTikTok(savedTikTokUser, savedSid);
-      } else {
-        // Session exists but no username saved — show yellow badge, prompt user
-        setStatusBadge('tiktok', 'warning', 'TikTok: sesión activa (ingresa @usuario)');
-        console.log('[Chat] TikTok: sessionId found but no username saved');
-      }
+    // Show immediate status badges for all configured platforms so UI responds instantly
+    const s0 = state.settings;
+    if (s0.twitchToken) setStatusBadge('twitch', 'connecting', 'Twitch: conectando…');
+    if (s0.youtubeChannel) setStatusBadge('youtube', 'connecting', 'YouTube: conectando…');
+    const savedSid      = (s0.tiktokSessionId || '').trim();
+    const savedTikTok   = (s0.tiktokUser || '').trim().replace(/^@/, '');
+
+    // Show TikTok badge if we have either a saved username OR a sessionId
+    if (savedTikTok || savedSid) {
+      const lbl = savedTikTok ? `TikTok: @${savedTikTok}` : 'TikTok: sesión activa';
+      setStatusBadge('tiktok', 'warning', lbl);
     }
+
+    if (savedSid) state.tiktokSessionId = savedSid;
+    if (savedTikTok) state.tiktokUsername = savedTikTok;
+
+    // Run auto-connects in parallel for faster startup
+    await Promise.allSettled([
+      autoConnectTwitch(),
+      autoConnectYouTube(),
+      (savedTikTok && savedSid)
+        ? autoConnectTikTok(savedTikTok, savedSid)
+        : savedTikTok
+          ? autoConnectTikTok(savedTikTok, null)   // try without sessionId (public streams)
+          : Promise.resolve()
+    ]);
     console.log('[Chat] Auto-conexión completada');
   } catch (err) {
     console.error('[Chat] Error en init():', err);
@@ -181,24 +191,24 @@ async function autoConnectTwitch() {
 // Auto-connect to YouTube when there's a saved channel
 async function autoConnectYouTube() {
   try {
-    // Check if there's a saved YouTube channel
-    const savedChannel = state.settings.youtubeChannel;
-    if (!savedChannel) {
-      console.log('[Chat] No hay canal de YouTube guardado');
-      return;
+    let savedChannel = (state.settings.youtubeChannel || '').trim();
+    if (!savedChannel) return;
+    // Ensure @ prefix for handles (not for UC... channel IDs)
+    if (!savedChannel.startsWith('@') && !savedChannel.startsWith('UC')) {
+      savedChannel = '@' + savedChannel;
     }
-    
     console.log('[Chat] Auto-conectando a YouTube:', savedChannel);
-    const res = await window.chattering.youtube.connect(savedChannel, null);
-    console.log('[Chat] Auto-conexión YouTube resultado:', res);
-    
-    if (res && res.connected) {
+    setStatusBadge('youtube', 'connecting', `YouTube: conectando…`);
+    const res = await window.chattering.youtube.connect(savedChannel);
+    if (res?.connected) {
       state.connectedChannels.youtube = savedChannel;
       addSystemMessage(`Conectado automáticamente a ${savedChannel} (YouTube)`, 'youtube');
       chatInput.placeholder = 'Escribe un mensaje…';
+      $('#no-connections-popup')?.classList.add('hidden');
     }
   } catch (err) {
-    console.error('[Chat] Error en auto-conexión YouTube:', err);
+    console.error('[Chat] autoConnectYouTube:', err.message);
+    // If not live, the youtube:status IPC will update the badge
   }
 }
 
@@ -556,11 +566,19 @@ function registerPlatformListeners() {
     appendEventInChat(data);
   });
   window.chattering.tiktok.onStatus(data => {
-    const s = data.connected ? 'connected' : data.idle ? 'warning' : 'error';
-    const l = data.connected ? `TikTok: @${data.channel}`
-            : data.idle      ? `TikTok: @${data.channel} (offline)`
-            : 'TikTok: desconectado';
+    let s, l;
+    const ch = data.channel ? `@${data.channel}` : '';
+    if (data.connected && !data.idle) {
+      s = 'connected'; l = `TikTok: ${ch}`;
+    } else if (data.connected && data.idle) {
+      s = 'warning';   l = `TikTok: ${ch} (offline)`;
+    } else if (data.idle) {
+      s = 'warning';   l = ch ? `TikTok: ${ch} (offline)` : 'TikTok: sesión activa';
+    } else {
+      s = 'error';     l = 'TikTok: desconectado';
+    }
     setStatusBadge('tiktok', s, l);
+    if (data.connected) $('#no-connections-popup')?.classList.add('hidden');
   });
 
   // YouTube
@@ -687,9 +705,11 @@ function appendChatMessage(msg) {
       return;
     }
 
-    chatMessages.appendChild(row);
-    // Apply active filters to the newly added row
-    if (shouldFilterRow(row)) row.classList.add('filtered-out');
+    // Use rAF to batch DOM insertions — avoids layout thrash on rapid message flood
+    requestAnimationFrame(() => {
+      chatMessages.appendChild(row);
+      if (shouldFilterRow(row)) row.classList.add('filtered-out');
+    });
     trimMessageList();
 
     if (!state.isScrollPaused) {
@@ -825,7 +845,12 @@ async function loadEmotes(platform, channelId) {
 
 // ─── Scroll management ────────────────────────────────────────────────────────
 function setupScrollBehaviour() {
-  chatViewport.addEventListener('scroll', onViewportScroll, { passive: true });
+  // Debounce scroll to max 16ms (≈60fps) to avoid layout thrash
+  let _scrollTimer = null;
+  chatViewport.addEventListener('scroll', () => {
+    if (_scrollTimer) return;
+    _scrollTimer = requestAnimationFrame(() => { _scrollTimer = null; onViewportScroll(); });
+  }, { passive: true });
   btnNewMessages.addEventListener('click', () => {
     resumeScroll();
   });
@@ -838,6 +863,8 @@ function onViewportScroll() {
       state.isScrollPaused = true;
       state.pendingCount = 0;
     }
+    // Show the button immediately when user scrolls up, even with no new messages
+    updateNewMessagesButton();
   } else {
     if (state.isScrollPaused) resumeScroll();
   }
@@ -855,25 +882,42 @@ function scrollToBottom() {
 }
 
 function updateNewMessagesButton() {
-  if (state.pendingCount > 0) {
+  if (state.isScrollPaused) {
     btnNewMessages.textContent = '';
     const icon = document.createElement('svg');
     icon.setAttribute('viewBox', '0 0 24 24');
     icon.innerHTML = '<path d="M7 10l5 5 5-5z"/>';
     btnNewMessages.appendChild(icon);
-    btnNewMessages.appendChild(document.createTextNode(
-      ` ${state.pendingCount > 99 ? '99+' : state.pendingCount} nuevos`
-    ));
+    const label = state.pendingCount > 0
+      ? ` ${state.pendingCount > 99 ? '99+' : state.pendingCount} nuevos`
+      : ' Ir al final';
+    btnNewMessages.appendChild(document.createTextNode(label));
     btnNewMessages.classList.remove('hidden');
   } else {
     btnNewMessages.classList.add('hidden');
   }
 }
 
-// Limit DOM size for performance
+// Limit DOM size for performance + memory management
 function trimMessageList() {
   while (chatMessages.children.length > state.MAX_MESSAGES) {
-    chatMessages.removeChild(chatMessages.firstChild);
+    const removed = chatMessages.firstChild;
+    chatMessages.removeChild(removed);
+  }
+  // Cap per-user session message history to prevent unbounded growth
+  const MAX_SESSION_MSGS_PER_USER = 50;
+  for (const key of Object.keys(state.sessionMessages)) {
+    if (state.sessionMessages[key].length > MAX_SESSION_MSGS_PER_USER) {
+      state.sessionMessages[key] = state.sessionMessages[key].slice(-MAX_SESSION_MSGS_PER_USER);
+    }
+  }
+  // Cap userColorMap (keep only users seen in current DOM)
+  const domUsers = new Set([...chatMessages.querySelectorAll('[data-user]')].map(el => {
+    const p = el.classList.toString().match(/platform-(\w+)/)?.[1] || 'twitch';
+    return `${p}:${el.dataset.user}`;
+  }));
+  for (const key of Object.keys(state.userColorMap)) {
+    if (!domUsers.has(key)) delete state.userColorMap[key];
   }
 }
 
@@ -898,8 +942,22 @@ async function sendChatMessage() {
   chatInput.value = '';
   try {
     await window.chattering.twitch.sendMessage(state.connectedChannels.twitch, msg);
+    // tmi.js filters self=true from IRC echo, so we render it locally
+    const selfInfo = await window.chattering.twitch.getUser().catch(() => null);
+    appendChatMessage({
+      id:          String(Date.now()),
+      platform:    'twitch',
+      username:    selfInfo?.username || state.connectedChannels.twitch,
+      displayName: selfInfo?.displayName || state.connectedChannels.twitch,
+      color:       state.userColorMap?.[`twitch:${selfInfo?.username}`] || '#9147ff',
+      message:     msg,
+      badges:      [],
+      emotes:      {},
+      isAction:    false
+    });
   } catch (e) {
     showToast(`No se pudo enviar: ${e.message}`, 'error');
+    chatInput.value = msg; // restore message on error
   }
 }
 
@@ -918,12 +976,11 @@ function setupDock() {
   let dragOffset = { x: 0, y: 0 };
   
   function setDockPosition(pos) {
-    if (!dock) return; // Si no hay dock, no hacemos nada
-    
-    // Make sure dock is visible (it might be hidden when floating dock was open)
+    if (!dock) return;
     dock.style.display = '';
-    
-    // Remove all position classes
+    // Clear any inline dimensions set by the resize handler so CSS classes take over cleanly
+    dock.style.width  = '';
+    dock.style.height = '';
     dock.classList.remove('dock-top', 'dock-bottom', 'dock-left', 'dock-right', 'dock-float');
     
     // Show/hide float button based on state
@@ -1146,72 +1203,159 @@ function setupDock() {
   if (state.settings.dockPosition) {
     setDockPosition(state.settings.dockPosition);
   } else {
-    // Default to top
     setDockPosition('top');
   }
+
+  // ── Dock event filter ─────────────────────────────────────────────────────
+  const btnDockFilter  = $('#btn-dock-filter');
+  const dockFilterDrop = $('#dock-filter-dropdown');
+
+  btnDockFilter?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    dockFilterDrop?.classList.toggle('hidden');
+  });
+
+  document.addEventListener('click', (e) => {
+    if (dockFilterDrop && !dockFilterDrop.contains(e.target) && e.target !== btnDockFilter) {
+      dockFilterDrop.classList.add('hidden');
+    }
+  });
+
+  dockFilterDrop?.querySelectorAll('[data-filter-event]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const t = btn.dataset.filterEvent;
+      const idx = state.dockFilters.indexOf(t);
+      if (idx === -1) state.dockFilters.push(t); else state.dockFilters.splice(idx, 1);
+      btn.classList.toggle('active', state.dockFilters.includes(t));
+      btnDockFilter?.classList.toggle('has-active-filter', state.dockFilters.length > 0);
+      // Apply filter to existing items
+      if (dockEvents) {
+        dockEvents.querySelectorAll('.event-item').forEach(el => {
+          const evType = [...el.classList].find(cl => cl !== 'event-item') || '';
+          el.style.display = (state.dockFilters.length === 0 || state.dockFilters.includes(evType)) ? '' : 'none';
+        });
+      }
+    });
+  });
+
+  $('#btn-clear-dock-filters')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    state.dockFilters = [];
+    dockFilterDrop?.querySelectorAll('[data-filter-event]').forEach(b => b.classList.remove('active'));
+    btnDockFilter?.classList.remove('has-active-filter');
+    if (dockEvents) dockEvents.querySelectorAll('.event-item').forEach(el => { el.style.display = ''; });
+  });
 }
+
+// Like accumulation: one entry per user, updated in-place and pinned to bottom
+const likeCountMap = {}; // { 'platform:username': { el, count } }
 
 function appendDockEvent(evt) {
   const { type, username, displayName, amount, months, message, platform } = evt;
+  const who = displayName || username || 'Anónimo';
 
+  const ICONS = {
+    follow: '💙', sub: '⭐', resub: '⭐', gift: '🎁', bits: '💎',
+    like: '❤️', raid: '🚀', share: '🔁', superchat: '💛', member: '💙',
+    redeem: '✨', streamEnd: '📴'
+  };
+
+  // Platform badge (short text)
+  const PLAT = { twitch: 'TW', tiktok: 'TT', youtube: 'YT' };
+
+  // ── Likes: accumulate per user, one entry pinned to bottom of dock ─────────
+  if (type === 'like') {
+    const key = `${platform}:${username}`;
+    if (likeCountMap[key]) {
+      // Update existing entry in-place
+      likeCountMap[key].count += (amount || 1);
+      likeCountMap[key].el.querySelector('.event-desc').textContent =
+        `${likeCountMap[key].count} like(s)`;
+      // Move to bottom
+      dockEvents.appendChild(likeCountMap[key].el);
+    } else {
+      const item = buildEventItem(type, who, `${amount || 1} like(s)`, platform, ICONS, PLAT, evt);
+      likeCountMap[key] = { el: item, count: amount || 1 };
+      dockEvents.appendChild(item); // likes go to bottom
+      if (state.settings.alertsEnabled) flashAlert(item);
+    }
+    window.chattering?.dock?.addEvent?.({ ...evt, amount: likeCountMap[key].count });
+    return;
+  }
+
+  // ── All other events: prepend (newest at top) ─────────────────────────────
+  const desc = buildEventDescription(type, amount, months, message, platform, evt.giftName);
+  const item = buildEventItem(type, who, desc, platform, ICONS, PLAT, evt);
+  dockEvents.prepend(item);
+
+  // Trim to 100 items (excluding like entries which are managed separately)
+  const nonLikeItems = [...dockEvents.children].filter(el => !el.classList.contains('like'));
+  while (nonLikeItems.length > 100) {
+    const oldest = nonLikeItems.pop();
+    oldest.remove();
+  }
+
+  window.chattering?.dock?.addEvent?.({ ...evt });
+
+  if (state.settings.alertsEnabled) flashAlert(item);
+}
+
+function buildEventItem(type, who, desc, platform, ICONS, PLAT, extraData) {
   const item = document.createElement('div');
   item.className = `event-item ${type}`;
 
-  const iconMap = {
-    follow: '💙', sub: '⭐', resub: '⭐', gift: '🎁', bits: '💎',
-    like: '❤️', raid: '🚀', share: '🔁', superchat: '💛', member: '🏅'
-  };
-
   const icon = document.createElement('span');
   icon.className = 'event-icon';
-  icon.textContent = iconMap[type] || '📣';
+  // TikTok gifts: show the gift image instead of emoji
+  if (type === 'gift' && platform === 'tiktok' && extraData?.giftImg) {
+    const gImg = document.createElement('img');
+    gImg.src = extraData.giftImg;
+    gImg.style.cssText = 'width:22px;height:22px;object-fit:contain;border-radius:3px;vertical-align:middle;';
+    gImg.onerror = () => { gImg.replaceWith(document.createTextNode('🎁')); };
+    icon.appendChild(gImg);
+  } else {
+    icon.textContent = ICONS[type] || '📣';
+  }
 
   const body = document.createElement('div');
   body.className = 'event-body';
 
-  const user = document.createElement('div');
-  user.className = 'event-user';
-  user.textContent = displayName || username || 'Anónimo';
+  const userEl = document.createElement('div');
+  userEl.className = 'event-user';
+  userEl.textContent = who;
 
-  const desc = document.createElement('div');
-  desc.className = 'event-desc';
-  desc.textContent = buildEventDescription(type, amount, months, message);
+  const descEl = document.createElement('div');
+  descEl.className = 'event-desc';
+  descEl.textContent = desc;
 
-  body.appendChild(user);
-  body.appendChild(desc);
+  const platEl = document.createElement('span');
+  platEl.className = 'event-platform';
+  platEl.textContent = PLAT[platform] || (platform || '').toUpperCase().slice(0, 2);
+
+  body.appendChild(userEl);
+  body.appendChild(descEl);
   item.appendChild(icon);
   item.appendChild(body);
-
-  dockEvents.prepend(item);
-
-  // Trim dock to 100 events
-  while (dockEvents.children.length > 100) {
-    dockEvents.removeChild(dockEvents.lastChild);
-  }
-
-  // Send event to floating dock window if open
-  window.chattering?.dock?.addEvent({
-    type,
-    message: `${displayName || username || 'Anónimo'}: ${buildEventDescription(type, amount, months, message)}`,
-    time: new Date().toLocaleTimeString()
-  });
-
-  // Flash alert if enabled
-  if (state.settings.alertsEnabled) flashAlert(item);
+  item.appendChild(platEl);
+  return item;
 }
 
-function buildEventDescription(type, amount, months, message) {
+function buildEventDescription(type, amount, months, message, platform, giftName) {
   switch (type) {
-    case 'follow':  return 'Siguió al canal';
-    case 'sub':     return 'Nuevo suscriptor';
-    case 'resub':   return `Resub x${months || 1}`;
-    case 'gift':    return `Regaló ${amount || 1} sub(s)`;
-    case 'bits':    return `${amount || 0} bits`;
-    case 'like':    return `${amount || 1} like(s)`;
-    case 'share':   return 'Compartió el stream';
-    case 'raid':    return `Raid de ${amount || 0} viewers`;
-    case 'superchat': return `Super Chat: $${amount || 0}`;
-    case 'member':  return `Nuevo miembro`;
+    case 'follow':    return 'siguió al canal';
+    case 'sub':       return 'se suscribió';
+    case 'resub':     return `resub ×${months || 1}`;
+    case 'bits':      return `donó ${amount || 0} bits`;
+    case 'like':      return `dio ${amount || 1} like(s)`;
+    case 'raid':      return `hizo raid con ${amount || 0} viewers`;
+    case 'superchat': return `Super Chat $${amount || 0}${message ? ': ' + message : ''}`;
+    case 'share':     return 'ha compartido el live';
+    case 'redeem':    return `canjeó "${giftName || message || 'recompensa'}"`;
+    case 'gift':
+      if (platform === 'tiktok') return `donó ${giftName || message || 'regalo'}${amount && amount > 1 ? ' ×' + amount : ''}`;
+      return `regaló ${amount || 1} sub(s)`;
     default: return type;
   }
 }
@@ -1232,22 +1376,15 @@ function appendEventInChat(evt) {
   const { type, platform, username, displayName, amount, months, message, giftName } = evt;
   const who = displayName || username || 'Anónimo';
 
-  const actionMap = {
-    follow:    `siguió el canal`,
-    sub:       `se suscribió`,
-    resub:     `resub ×${months || 1}`,
-    gift:      `regaló ${amount || 1} sub(s)`,
-    bits:      `donó ${amount || 0} bits`,
-    like:      `dejó ${amount || 1} like(s)`,
-    share:     `compartió el stream`,
-    raid:      `hizo raid con ${amount || 0} viewers`,
-    superchat: `Super Chat $${amount || 0}${message ? ': ' + message : ''}`,
-    member:    `se unió como miembro`,
-    redeem:    `canjeó "${giftName || message || 'recompensa'}"`,
-  };
+  // Likes only go to the dock (accumulated per user), never as inline chat event
+  if (type === 'like') return;
+  // User joined stream — not actionable
+  if (type === 'member') return;
+  // Stream ended — no inline banner needed
+  if (type === 'streamEnd') return;
 
-  const action = actionMap[type];
-  if (!action) return; // skip unknown / streamEnd
+  const action = buildEventDescription(type, amount, months, message, platform, giftName);
+  if (!action || action === type) return; // unknown type
 
   const platformLabel = { twitch: 'Twitch', youtube: 'YouTube', tiktok: 'TikTok' }[platform] || platform;
 
@@ -1436,9 +1573,11 @@ function ttsProcessQueue() {
 function setStatusBadge(platform, status, label) {
   const badge = $(`#status-${platform}`);
   if (!badge) return;
+  // Always make visible when we have a status to show
   badge.classList.remove('hidden', 'connected', 'error', 'connecting', 'warning');
   badge.classList.add(status);
-  badge.querySelector('.status-label').textContent = label;
+  const lbl = badge.querySelector('.status-label');
+  if (lbl) lbl.textContent = label;
 }
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
