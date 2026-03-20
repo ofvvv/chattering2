@@ -12,7 +12,7 @@ const EmoteManager    = require('../managers/emote-manager');
  * @param {{ getMainWindow: Function, getSettingsWindow: Function, openSettingsWindow: Function, openTikTokAuthWindow: Function, openDockWindow: Function, closeDockWindow: Function, getDockWindow: Function }} ctx
  */
 function register(ipcMain, ctx) {
-  const { getMainWindow, openSettingsWindow, openTikTokAuthWindow, openTwitchOAuthWindow, openDockWindow, closeDockWindow, getDockWindow } = ctx;
+  const { getMainWindow, openSettingsWindow, openTikTokAuthWindow, openTwitchOAuthWindow, openDockWindow, closeDockWindow, getDockWindow, openUsercardWindow, getUsercardWindow } = ctx;
 
   // ── Window controls ────────────────────────────────────────────────────────
   // Use the event sender's window so any window using the preload can control itself
@@ -65,6 +65,15 @@ function register(ipcMain, ctx) {
   // ── Settings window ────────────────────────────────────────────────────────
   ipcMain.on('settings:open', () => openSettingsWindow());
   ipcMain.handle('settings:getAll', () => SettingsManager.get());
+  ipcMain.handle('settings:get', (_e, keys) => {
+    const all = SettingsManager.get();
+    if (Array.isArray(keys)) {
+      const result = {};
+      keys.forEach(k => { if (k in all) result[k] = all[k]; });
+      return result;
+    }
+    return all;
+  });
   ipcMain.handle('settings:set', (_e, patch) => {
     SettingsManager.set(patch);
     const updated = SettingsManager.get();
@@ -163,6 +172,7 @@ function register(ipcMain, ctx) {
   ipcMain.handle('youtube:connect', async (_e, channelHandle) => {
     return YouTubeConnector.connect(channelHandle, getMainWindow);
   });
+  
   ipcMain.handle('youtube:disconnect', async () => YouTubeConnector.disconnect());
 
   // ── Emotes ─────────────────────────────────────────────────────────────────
@@ -182,14 +192,19 @@ function register(ipcMain, ctx) {
   });
 
   ipcMain.on('dock:setPosition', (_e, pos) => {
+    console.log('[Handlers] dock:setPosition received, pos:', pos);
     // Close dock window first
     closeDockWindow();
     // Save position to settings
     SettingsManager.set({ dockPosition: pos });
     // Notify main window to show docked dock at new position
     const mainWin = getMainWindow();
+    console.log('[Handlers] Main window:', mainWin ? 'exists' : 'null');
     if (mainWin && !mainWin.isDestroyed()) {
+      console.log('[Handlers] Sending dock:positionChanged to main window');
       mainWin.webContents.send('dock:positionChanged', pos);
+    } else {
+      console.log('[Handlers] ERROR - main window is destroyed or null');
     }
   });
 
@@ -207,6 +222,22 @@ function register(ipcMain, ctx) {
     if (dockWin && !dockWin.isDestroyed()) {
       dockWin.webContents.send('dock:event', event);
     }
+  });
+  // ── User Card ──────────────────────────────────────────────────────────────
+  ipcMain.handle('usercard:open', (_e, data) => {
+    const { screenX, screenY, ...cardData } = data;
+    openUsercardWindow(cardData, screenX ?? 200, screenY ?? 200);
+    return { ok: true };
+  });
+
+  ipcMain.on('usercard:close', () => {
+    const win = getUsercardWindow();
+    if (win && !win.isDestroyed()) win.close();
+  });
+
+  ipcMain.on('usercard:openProfile', (_e, url) => {
+    const { shell } = require('electron');
+    shell.openExternal(url);
   });
 }
 

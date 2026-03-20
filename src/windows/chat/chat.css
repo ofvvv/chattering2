@@ -173,6 +173,8 @@ body {
   background: var(--bg-primary);
   color: var(--text-primary);
   height: 100vh;
+  font-family: 'Segoe UI', system-ui, -apple-system,
+               'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
 }
 
 /* ── Titlebar ─────────────────────────────────────────────────────────────── */
@@ -481,6 +483,7 @@ body {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  align-items: stretch;
 }
 
 /* ── Chat section ─────────────────────────────────────────────────────────── */
@@ -488,12 +491,14 @@ body {
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-width: 0;
+  min-width: 200px;
+  min-height: 0;          /* CRITICAL: prevents flex child from overflowing */
   position: relative;
 }
 
 #chat-viewport {
   flex: 1;
+  min-height: 0;          /* CRITICAL: bounds the scroll container */
   overflow-y: auto;
   overflow-x: hidden;
   scroll-behavior: smooth;
@@ -537,17 +542,22 @@ body {
   font-style: italic;
 }
 
-.msg-platform-dot {
-  width: 4px;
-  min-width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  margin-top: 7px;
+/* ── Platform icon (replaces the old 4px dot) ─────────────────────────────── */
+.msg-platform-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  margin-top: 3px;
+  opacity: 0.75;
 }
 
-.platform-twitch  .msg-platform-dot { background: var(--twitch-color); }
-.platform-tiktok  .msg-platform-dot { background: var(--tiktok-color); }
-.platform-youtube .msg-platform-dot { background: var(--youtube-color); }
+.msg-platform-icon svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
 
 .msg-timestamp {
   font-size: 10px;
@@ -684,6 +694,7 @@ body {
   background: var(--bg-secondary);
   border-left: 1px solid var(--border);
   overflow: hidden;
+  position: relative;
 }
 
 #dock-header {
@@ -741,6 +752,18 @@ body {
 .dock-btn:hover { background: var(--bg-hover); opacity: 1; }
 .dock-btn.active { color: var(--accent); opacity: 1; }
 
+/* Clear events button - more subtle */
+#btn-clear-events {
+  opacity: 0.3;
+  margin-left: 4px;
+  padding: 2px;
+}
+
+#btn-clear-events:hover {
+  opacity: 0.8;
+  background: var(--bg-hover);
+}
+
 /* Dock positions */
 #events-dock.dock-top {
   order: -1;
@@ -768,7 +791,11 @@ body {
   order: -1;
   width: 160px;
   max-width: 300px;
+  min-width: 120px;
   height: 100%;
+  min-height: 100%;
+  align-self: stretch;
+  flex-shrink: 0;
   border-left: none;
   border-right: 1px solid var(--border);
 }
@@ -777,7 +804,11 @@ body {
   order: 1;
   width: 200px;
   max-width: 400px;
+  min-width: 160px;
   height: 100%;
+  min-height: 100%;
+  align-self: stretch;
+  flex-shrink: 0;
   border-left: 1px solid var(--border);
 }
 
@@ -809,82 +840,130 @@ body {
   display: none;
 }
 
-/* When docked at top - single horizontal line at bottom, resize height only */
+/* When docked at top - horizontal line on bottom edge, resize height */
 #events-dock.dock-top #dock-resize-handle {
   display: block;
   position: absolute;
   bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 80px;
-  height: 6px;
+  left: 0;
+  right: 0;
+  height: 8px;
   cursor: ns-resize;
-  background: var(--border);
-  border-radius: 3px 3px 0 0;
-  opacity: 0.6;
+  background: transparent;
+  z-index: 10;
 }
 
-#events-dock.dock-top #dock-resize-handle:hover {
+#events-dock.dock-top #dock-resize-handle::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  opacity: 0.6;
+  transition: opacity 0.2s, background 0.2s;
+}
+
+#events-dock.dock-top:hover #dock-resize-handle::after {
   opacity: 1;
   background: var(--accent);
 }
 
-/* When docked at bottom - single horizontal line at top, resize height only */
+/* When docked at bottom - horizontal line on top edge, resize height */
 #events-dock.dock-bottom #dock-resize-handle {
   display: block;
   position: absolute;
   top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 80px;
-  height: 6px;
+  left: 0;
+  right: 0;
+  height: 8px;
   cursor: ns-resize;
-  background: var(--border);
-  border-radius: 0 0 3px 3px;
-  opacity: 0.6;
+  background: transparent;
+  z-index: 10;
 }
 
-#events-dock.dock-bottom #dock-resize-handle:hover {
+#events-dock.dock-bottom #dock-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  opacity: 0.6;
+  transition: opacity 0.2s, background 0.2s;
+}
+
+#events-dock.dock-bottom:hover #dock-resize-handle::after {
   opacity: 1;
   background: var(--accent);
 }
 
-/* When docked at left - single vertical line at right, resize width only */
+/* When docked at left - vertical line on right edge, resize width */
 #events-dock.dock-left #dock-resize-handle {
   display: block;
   position: absolute;
   right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 80px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
   cursor: ew-resize;
-  background: var(--border);
-  border-radius: 0 3px 3px 0;
-  opacity: 0.6;
+  background: transparent;
+  z-index: 10;
 }
 
-#events-dock.dock-left #dock-resize-handle:hover {
+#events-dock.dock-left #dock-resize-handle::after {
+  content: '';
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 40px;
+  background: var(--border);
+  border-radius: 2px;
+  opacity: 0.6;
+  transition: opacity 0.2s, background 0.2s;
+}
+
+#events-dock.dock-left:hover #dock-resize-handle::after {
   opacity: 1;
   background: var(--accent);
 }
 
-/* When docked at right - single vertical line at left, resize width only */
+/* When docked at right - vertical line on left edge, resize width */
 #events-dock.dock-right #dock-resize-handle {
   display: block;
   position: absolute;
   left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 80px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
   cursor: ew-resize;
-  background: var(--border);
-  border-radius: 3px 0 0 3px;
-  opacity: 0.6;
+  background: transparent;
+  z-index: 10;
 }
 
-#events-dock.dock-right #dock-resize-handle:hover {
+#events-dock.dock-right #dock-resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 40px;
+  background: var(--border);
+  border-radius: 2px;
+  opacity: 0.6;
+  transition: opacity 0.2s, background 0.2s;
+}
+
+#events-dock.dock-right:hover #dock-resize-handle::after {
   opacity: 1;
   background: var(--accent);
 }
@@ -1085,6 +1164,25 @@ body {
 
 @keyframes toastIn  { from { opacity:0; transform: translateX(12px); } to { opacity:1; transform:none; } }
 @keyframes toastOut { from { opacity:1; }  to   { opacity:0; transform: translateX(12px); } }
+
+/* ── Inline event row (Chatterino-style highlighted banner) ──────────────── */
+.chat-event {
+  background: rgba(145, 71, 255, .07);
+  border-left: 2px solid var(--accent);
+  font-size: 11.5px;
+  gap: 6px;
+  align-items: center;
+}
+.chat-event:hover { background: rgba(145, 71, 255, .13); }
+.event-inline-icon { flex-shrink: 0; font-size: 13px; line-height: 1; }
+.event-inline-text { flex: 1; color: var(--text-muted); line-height: 1.4; }
+.event-inline-text strong { color: var(--text-primary); font-weight: 700; }
+.event-inline-platform {
+  font-size: 10px;
+  color: var(--dim);
+  margin-left: 5px;
+  font-style: normal;
+}
 
 /* ── Utility ─────────────────────────────────────────────────────────────── */
 .hidden { display: none !important; }

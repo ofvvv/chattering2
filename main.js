@@ -8,11 +8,13 @@ const ipcHandlers = require('./src/ipc/handlers');
 
 // ─── Performance: disable hardware acceleration ──────────────────────────────
 // These must be called before app.ready - use will-finish-launching event
-app.on('will-finish-launching', () => {
-  app.commandLine.appendSwitch('disable-renderer-backgrounding');
-  app.commandLine.appendSwitch('disable-background-timer-throttling');
-  app.commandLine.appendSwitch('force-color-profile', 'srgb');
-});
+if (app.on) {
+  app.on('will-finish-launching', () => {
+    app.commandLine.appendSwitch('disable-renderer-backgrounding');
+    app.commandLine.appendSwitch('disable-background-timer-throttling');
+    app.commandLine.appendSwitch('force-color-profile', 'srgb');
+  });
+}
 
 // ─── Globals ────────────────────────────────────────────────────────────────
 let mainWindow = null;
@@ -20,6 +22,7 @@ let settingsWindow = null;
 let dockWindow = null;
 let tiktokAuthWindow = null;
 let twitchOAuthWindow = null;
+let usercardWindow = null;
 let oauthServer = null;
 const isDev = process.argv.includes('--dev');
 
@@ -105,53 +108,6 @@ function startOAuthServer() {
 </html>
         `);
         return;
-        
-        if (accessToken) {
-          console.log('[OAuth Server] Twitch token received!');
-          
-          // Save token to settings
-          SettingsManager.set({ twitchToken: accessToken });
-          
-          // Notify main window
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('twitch:oauth-captured', { token: accessToken });
-          }
-          
-          // Send success response
-          res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-              <meta charset="UTF-8">
-              <style>
-                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
-                       display: flex; align-items: center; justify-content: center; 
-                       height: 100vh; margin: 0; background: #1f1f23; color: #efeff1; }
-                .container { text-align: center; padding: 40px; }
-                .success { color: #00c853; font-size: 48px; }
-                h1 { margin: 20px 0 10px; }
-                p { color: #adadb8; }
-              </style>
-            </head>
-            <body>
-              <div class="container">
-                <div class="success">✓</div>
-                <h1>¡Conectado!</h1>
-                <p>Tu sesión de Twitch ha sido autenticada.</p>
-                <p>Puedes cerrar esta ventana y usar Chattering.</p>
-              </div>
-              <script>setTimeout(() => window.close(), 3000);</script>
-            </body>
-            </html>
-          `);
-        } else if (error) {
-          res.writeHead(400, { 'Content-Type': 'text/html' });
-          res.end(`<h1>Error: ${error}</h1><p>Cierra esta ventana e intenta de nuevo.</p>`);
-        } else {
-          res.writeHead(400, { 'Content-Type': 'text/html' });
-          res.end('<h1>Token no recibido</h1><p>Cierra esta ventana e intenta de nuevo.</p>');
-        }
       } else {
         res.writeHead(404);
         res.end('Not found');
@@ -185,7 +141,9 @@ app.whenReady().then(async () => {
     openTikTokAuthWindow,
     openTwitchOAuthWindow: (clientId) => openTwitchOAuthWindow(clientId || SettingsManager.get().twitchClientId),
     openDockWindow,
-    closeDockWindow
+    closeDockWindow,
+    openUsercardWindow: (data, x, y) => openUsercardWindow(data, x, y),
+    getUsercardWindow: () => usercardWindow
   });
 
   app.on('activate', () => {
@@ -197,32 +155,40 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-// ─── Check TikTok cookies on startup ───────────────────────────────────────────
 function checkTikTokCookiesOnStartup() {
-  // Delay slightly to ensure window is ready
   setTimeout(() => {
     const tiktokSession = session.fromPartition('persist:tiktok');
-    
+
     tiktokSession.cookies.get({ domain: '.tiktok.com' }).then(cookies => {
-      console.log('[TikTok] Cookies found on startup:', cookies?.length || 0);
       const sessionKey = cookies?.find(c => c.name === 'sessionid' || c.name === 'sessionid_ss');
-      const ttWebId = cookies?.find(c => c.name === 'tt_webid');
-      
-      if (sessionKey && ttWebId) {
+      if (sessionKey) {
         console.log('[TikTok] Found valid cookies on startup');
         const allCookies = {};
         cookies.forEach(c => { allCookies[c.name] = c.value; });
-        
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('tiktok:cookies-captured', allCookies);
-        }
+        // Small delay to ensure renderer is ready
+        setTimeout(() => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('tiktok:cookies-captured', allCookies);
+          }
+        }, 1500);
       } else {
-        console.log('[TikTok] No cookies found on startup');
+        // Fall back to stored sessionId from settings
+        const savedSessionId = SettingsManager.get().tiktokSessionId;
+        if (savedSessionId) {
+          console.log('[TikTok] Using saved sessionId from settings');
+          setTimeout(() => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('tiktok:session-restored', { sessionId: savedSessionId });
+            }
+          }, 1500);
+        } else {
+          console.log('[TikTok] No cookies or sessionId found on startup');
+        }
       }
     }).catch(err => {
       console.log('[TikTok] Error checking cookies on startup:', err.message);
     });
-  }, 2000); // Wait 2 seconds for window to fully load
+  }, 2000);
 }
 
 // ─── Main Chat Window ────────────────────────────────────────────────────────
@@ -231,10 +197,10 @@ function createMainWindow() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
   mainWindow = new BrowserWindow({
-    width: settings.windowWidth || 420,
-    height: settings.windowHeight || height,
-    x: settings.windowX || (width - (settings.windowWidth || 420)),
-    y: settings.windowY || 0,
+    width: settings.mainWindowWidth || settings.windowWidth || 420,
+    height: settings.mainWindowHeight || settings.windowHeight || height,
+    x: settings.mainWindowX ?? settings.windowX ?? (width - (settings.mainWindowWidth || settings.windowWidth || 420)),
+    y: settings.mainWindowY ?? settings.windowY ?? 0,
     minWidth: 280,
     minHeight: 400,
     frame: false,
@@ -431,35 +397,37 @@ function openTikTokAuthWindowInternal(tiktokSession) {
   // Show message in the window title to guide user
   tiktokAuthWindow.setTitle('TikTok Login - Chattering (Por favor inicia sesión y visita un live)');
 
-  // Listen for page navigation - capture cookies ONLY after user navigates to a live page
+  // Listen for page navigation - capture cookies as soon as a valid session exists
   tiktokAuthWindow.webContents.on('did-navigate', async (event, url) => {
     console.log('[TikTok Auth] Navigation to:', url);
-    
-    // Only capture cookies after user successfully logs in and visits a live page
-    if (url.includes('/live') || url.includes('/@')) {
-      try {
-        const cookies = await tiktokSession.cookies.get({ domain: '.tiktok.com' });
-        const sessionKey = cookies.find(c => c.name === 'sessionid' || c.name === 'sessionid_ss');
-        const ttWebId = cookies.find(c => c.name === 'tt_webid');
-        
-        if (sessionKey && ttWebId) {
-          clearInterval(tiktokAuthInterval);
-          console.log('[TikTok Auth] Live page detected - capturing cookies');
-          const allCookies = {};
-          cookies.forEach(c => { allCookies[c.name] = c.value; });
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('tiktok:cookies-captured', allCookies);
-          }
-          // Close the window after successful capture
-          setTimeout(() => {
-            if (tiktokAuthWindow && !tiktokAuthWindow.isDestroyed()) {
-              tiktokAuthWindow.close();
-            }
-          }, 1000);
+
+    // Skip the login page itself to avoid false-positives before the user logs in
+    if (url.includes('/login') || url.includes('/signup')) return;
+
+    try {
+      const cookies = await tiktokSession.cookies.get({ domain: '.tiktok.com' });
+      const sessionKey = cookies.find(c => c.name === 'sessionid' || c.name === 'sessionid_ss');
+
+      if (sessionKey) {
+        console.log('[TikTok Auth] Session cookie found – capturing');
+        const allCookies = {};
+        cookies.forEach(c => { allCookies[c.name] = c.value; });
+
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('tiktok:cookies-captured', allCookies);
         }
-      } catch (e) {
-        console.error('[TikTok Auth] Navigation cookie error:', e);
+        // Also persist sessionId to settings so reconnects work after restart
+        SettingsManager.set({ tiktokSessionId: sessionKey.value });
+
+        // Close auth window after a short delay so the user sees confirmation
+        setTimeout(() => {
+          if (tiktokAuthWindow && !tiktokAuthWindow.isDestroyed()) {
+            tiktokAuthWindow.close();
+          }
+        }, 800);
       }
+    } catch (e) {
+      console.error('[TikTok Auth] Navigation cookie error:', e);
     }
   });
 
@@ -488,6 +456,56 @@ function openTwitchOAuthWindow(clientId) {
       message: 'Se abrirá Twitch en tu navegador. Después de iniciar sesión, esta página se cerrará automáticamente.'
     });
   }
+}
+
+// ─── User Card Window ─────────────────────────────────────────────────────────
+function openUsercardWindow(data, x, y) {
+  const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
+  const W = 300, H = 490;
+  const wx = Math.max(0, Math.min(Math.round(x), sw - W));
+  const wy = Math.max(0, Math.min(Math.round(y), sh - H));
+
+  if (usercardWindow && !usercardWindow.isDestroyed()) {
+    // Reuse existing window — just update content and reposition
+    usercardWindow.setPosition(wx, wy);
+    usercardWindow.webContents.send('usercard:data', data);
+    usercardWindow.focus();
+    return;
+  }
+
+  usercardWindow = new BrowserWindow({
+    width: W,
+    height: H,
+    x: wx,
+    y: wy,
+    frame: false,
+    transparent: false,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    backgroundColor: '#18181b',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  });
+
+  usercardWindow.loadFile(path.join(__dirname, 'src/windows/usercard/index.html'));
+
+  usercardWindow.webContents.once('did-finish-load', () => {
+    if (usercardWindow && !usercardWindow.isDestroyed()) {
+      usercardWindow.webContents.send('usercard:data', data);
+    }
+  });
+
+  // Close when focus leaves the window (click outside)
+  usercardWindow.on('blur', () => {
+    if (usercardWindow && !usercardWindow.isDestroyed()) usercardWindow.close();
+  });
+
+  usercardWindow.on('closed', () => { usercardWindow = null; });
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

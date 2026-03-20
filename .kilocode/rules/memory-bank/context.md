@@ -2,7 +2,7 @@
 
 ## Current State
 
-**Status**: ✅ All issues fixed - Twitch messages working, emotes and badges displaying
+**Status**: 🔧 Debugging YouTube messages - added extensive logging to trace message flow
 
 ## Recently Completed (Latest Session)
 
@@ -12,6 +12,12 @@
 - [x] Fixed dock resize handle positioning based on dock location
 - [x] Fixed settings window not updating on connection status (now broadcasts to all windows)
 - [x] Added extensive debug logging for troubleshooting
+- [x] Fixed 7TV emotes not loading (removed numeric ID check in emote-manager)
+- [x] Fixed dock resize handler position (added position: relative to dock element)
+- [x] Made float button visible when docked (user can click to undock)
+- [x] Made clear-events button more transparent in dock controls
+- [x] **Fixed YouTube connection** - Implemented getLiveVideoIdFromNode using Node.js https module with URL format `https://www.youtube.com/@{handle}/live`
+- [x] **Fixed YouTube messages** - Convert message array to plain text string, extract ytEmotes for rendering
 
 ## Pending/Future Work
 
@@ -19,6 +25,8 @@
 - [ ] Add platform logos before messages with toggle
 - [ ] Make bot list editable with tags
 - [ ] Make dock draggable with snap-to-edge behavior
+- [ ] Render YouTube emotes (ytEmotes) in chat messages
+- [ ] TikTok connection issues (if any)
 
 ## File Structure
 
@@ -64,3 +72,4 @@ bun run build     # Package with electron-builder
 | 2026-03-18  | Full Chattering Electron app created from scratch  |
 | 2026-03-18  | Multiple bug fixes and feature implementations       |
 | 2026-03-18  | Fixed connection errors, added Settings improvements |
+| 2026-03-19  | Fixed 7TV emotes, dock UI improvements (resize handle, float button) |

@@ -24,6 +24,11 @@ const DEFAULTS = {
   animatedEmotes:  true,
 
   // Window state
+  mainWindowWidth:  420,
+  mainWindowHeight: 900,
+  mainWindowX:      null,
+  mainWindowY:      null,
+  // Legacy keys kept for backwards compatibility (first launch before any save)
   windowWidth:  420,
   windowHeight: 900,
   windowX:      null,
@@ -37,11 +42,14 @@ const DEFAULTS = {
   highlightWords:    '',
 
   // TTS
-  ttsEnabled:     false,
-  ttsOnlyTwitch:  false,
-  ttsRate:        1,
-  ttsVolume:      1,
-  ttsPitch:       1,
+  ttsEnabled:      false,
+  ttsMessageOnly:  true,
+  ttsTwitch:       true,
+  ttsYoutube:      false,
+  ttsTikTok:       false,
+  ttsRate:         1,
+  ttsVolume:       1,
+  ttsPitch:        1,
 
   // Alerts
   alertsEnabled: true,
@@ -56,11 +64,12 @@ const DEFAULTS = {
   modHighlight:    false,
 
   // Connections
-  twitchClientId: 'w2q6ngvevmf1gkuu1ngiqwmyzqmjrt',
-  twitchToken:    '',
-  twitchChannel:  '',
-  youtubeChannel: '',
-  tiktokUser:     '',
+  twitchClientId:  'w2q6ngvevmf1gkuu1ngiqwmyzqmjrt',
+  twitchToken:     '',
+  twitchChannel:   '',
+  youtubeChannel:  '',
+  tiktokUser:      '',
+  tiktokSessionId: '',
 
   // Accessibility
   reduceMotion:  false,

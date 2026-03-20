@@ -73,14 +73,34 @@ async function load7tvGlobal() {
 }
 
 async function load7tvChannel(channelLogin) {
+  // Note: 7TV API accepts both username and numeric user ID
   try {
     // 7TV uses Twitch user ID; try login→ID lookup via their API
-    console.log('[Emotes] 7TV Channel loading for:', channelLogin);
-    const data = await fetchJson(`https://7tv.io/v3/users/twitch/${channelLogin}`);
-    console.log('[Emotes] 7TV Channel response:', data ? 'ok' : 'empty');
-    const emotes = data?.emote_set?.emotes || [];
-    console.log('[Emotes] 7TV Channel emotes:', emotes.length);
-    parseEmoteSet7tv(emotes);
+    console.log('[Emotes] 7TV Channel loading for:', channelLogin, '(tipo:', typeof channelLogin, ')');
+    
+    // Add retry logic for transient errors
+    let lastError;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const data = await fetchJson(`https://7tv.io/v3/users/twitch/${channelLogin}`);
+        console.log('[Emotes] 7TV Channel response:', data ? 'ok' : 'empty');
+        const emotes = data?.emote_set?.emotes || [];
+        console.log('[Emotes] 7TV Channel emotes:', emotes.length);
+        parseEmoteSet7tv(emotes);
+        return; // Success, exit
+      } catch (e) {
+        lastError = e;
+        // Only retry on network/server errors, not on invalid response
+        if (e.message.includes('504') || e.message.includes('503') || e.message.includes('network') || e.message.includes('timeout')) {
+          const delay = Math.pow(2, attempt) * 1000;
+          console.log(`[Emotes] 7TV Channel attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+        } else {
+          break; // Non-retryable error
+        }
+      }
+    }
+    console.error('[Emotes] 7TV Channel error after retries:', lastError?.message);
   } catch (e) {
     console.error('[Emotes] 7TV Channel error:', e.message);
   }

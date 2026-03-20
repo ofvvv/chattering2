@@ -14,6 +14,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const { WebcastPushConnection } = require('tiktok-live-connector');
+const { broadcast } = require('../utils');
 
 // ─── State ───────────────────────────────────────────────────────────────────
 let connection    = null;
@@ -261,14 +262,9 @@ function buildTikTokBadges(data) {
 }
 
 // ─── Emitters ─────────────────────────────────────────────────────────────────
+// Using shared broadcast utility from src/utils
 function emit(channel, data) {
-  const { BrowserWindow } = require('electron');
-  // Broadcast to all windows
-  BrowserWindow.getAllWindows().forEach(win => {
-    if (win && !win.isDestroyed()) {
-      win.webContents.send(channel, data);
-    }
-  });
+  broadcast(channel, data);
 }
 
 function emitStatus(connected, errorMsg = null) {

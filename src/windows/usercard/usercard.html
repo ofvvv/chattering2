@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';" />
+  <title>User Card – Chattering</title>
+  <link rel="stylesheet" href="usercard.css" />
+</head>
+<body class="theme-dark">
+
+  <div id="uc-root">
+
+    <!-- ── Drag bar ─────────────────────────────────────────────────────── -->
+    <header id="uc-header">
+      <span id="uc-platform-icon"></span>
+      <span id="uc-header-title">Usuario</span>
+      <button id="uc-close-btn" title="Cerrar">✕</button>
+    </header>
+
+    <!-- ── User info ─────────────────────────────────────────────────────── -->
+    <section id="uc-info">
+      <img id="uc-avatar" src="" alt="avatar" />
+      <div id="uc-name-block">
+        <a id="uc-displayname" href="#" title="Ver perfil en navegador"></a>
+        <span id="uc-username-line"></span>
+        <div id="uc-badges-row"></div>
+      </div>
+    </section>
+
+    <!-- ── Stats ─────────────────────────────────────────────────────────── -->
+    <div id="uc-stats">
+      <div class="uc-stat">
+        <span class="uc-stat-lbl">Mensajes</span>
+        <span class="uc-stat-val" id="stat-msgs">0</span>
+      </div>
+      <div class="uc-stat">
+        <span class="uc-stat-lbl">Sub</span>
+        <span class="uc-stat-val" id="stat-sub">—</span>
+      </div>
+      <div class="uc-stat">
+        <span class="uc-stat-lbl">Mod</span>
+        <span class="uc-stat-val" id="stat-mod">—</span>
+      </div>
+    </div>
+
+    <!-- ── Message history ───────────────────────────────────────────────── -->
+    <section id="uc-history">
+      <div class="uc-section-label">Mensajes recientes</div>
+      <div id="uc-history-list"></div>
+    </section>
+
+    <!-- ── Moderation ────────────────────────────────────────────────────── -->
+    <section id="uc-mod">
+      <div class="uc-section-label" id="uc-mod-label">Moderación</div>
+
+      <div class="uc-mod-row" id="uc-timeout-btns">
+        <button class="mod-btn timeout-btn" data-secs="60">1m</button>
+        <button class="mod-btn timeout-btn" data-secs="600">10m</button>
+        <button class="mod-btn timeout-btn" data-secs="1800">30m</button>
+        <button class="mod-btn timeout-btn" data-secs="86400">24h</button>
+      </div>
+
+      <div class="uc-mod-row">
+        <button class="mod-btn ban-btn"   id="mod-ban">Ban</button>
+        <button class="mod-btn unban-btn" id="mod-unban">Unban</button>
+      </div>
+
+      <input type="text" id="mod-reason" placeholder="Razón (opcional)" autocomplete="off" />
+    </section>
+
+  </div>
+
+  <script src="usercard.js"></script>
+</body>
+</html>

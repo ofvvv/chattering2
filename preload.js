@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('chattering', {
   settings: {
     open:   () => ipcRenderer.send('settings:open'),
     getAll: () => ipcRenderer.invoke('settings:getAll'),
+    get:    (keys) => ipcRenderer.invoke('settings:get', keys),
     set:    (patch) => ipcRenderer.invoke('settings:set', patch)
   },
 
@@ -50,7 +51,8 @@ contextBridge.exposeInMainWorld('chattering', {
     onMessage:      (cb) => ipcRenderer.on('tiktok:message', (_e, data) => cb(data)),
     onEvent:        (cb) => ipcRenderer.on('tiktok:event', (_e, data) => cb(data)),
     onStatus:       (cb) => ipcRenderer.on('tiktok:status', (_e, data) => cb(data)),
-    onCookiesCaptured: (cb) => ipcRenderer.on('tiktok:cookies-captured', (_e, data) => cb(data))
+    onCookiesCaptured:    (cb) => ipcRenderer.on('tiktok:cookies-captured',  (_e, data) => cb(data)),
+    onSessionRestored:   (cb) => ipcRenderer.on('tiktok:session-restored', (_e, data) => cb(data))
   },
 
   // ── YouTube ────────────────────────────────────────────────────────────────
@@ -58,7 +60,16 @@ contextBridge.exposeInMainWorld('chattering', {
     connect:    (channelId) => ipcRenderer.invoke('youtube:connect', channelId),
     disconnect: () => ipcRenderer.invoke('youtube:disconnect'),
     onMessage:  (cb) => ipcRenderer.on('youtube:message', (_e, data) => cb(data)),
-    onStatus:   (cb) => ipcRenderer.on('youtube:status', (_e, data) => cb(data))
+    onEvent:    (cb) => ipcRenderer.on('youtube:event',   (_e, data) => cb(data)),
+    onStatus:   (cb) => ipcRenderer.on('youtube:status',  (_e, data) => cb(data))
+  },
+
+  // ── User Card ─────────────────────────────────────────────────────────────
+  usercard: {
+    open:        (data)  => ipcRenderer.invoke('usercard:open', data),
+    close:       ()      => ipcRenderer.send('usercard:close'),
+    openProfile: (url)   => ipcRenderer.send('usercard:openProfile', url),
+    _onData:     (cb)    => ipcRenderer.on('usercard:data', (_e, data) => cb(data))
   },
 
   // ── Emotes ─────────────────────────────────────────────────────────────────
@@ -77,7 +88,9 @@ contextBridge.exposeInMainWorld('chattering', {
     _onDockEvent: (cb) => ipcRenderer.on('dock:event', (_e, data) => cb(data)),
     _onDockClear: (cb) => ipcRenderer.on('dock:clearEvents', (_e, data) => cb(data)),
     // Listen for dock window closed
-    _onDockClosed: (cb) => ipcRenderer.on('dock:closed', (_e, data) => cb(data))
+    _onDockClosed: (cb) => ipcRenderer.on('dock:closed', (_e, data) => cb(data)),
+    // Listen for dock position changed
+    _onPositionChanged: (cb) => ipcRenderer.on('dock:positionChanged', (_e, data) => cb(data))
   },
 
   // ── TTS ────────────────────────────────────────────────────────────────────
