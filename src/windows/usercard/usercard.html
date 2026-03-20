@@ -3,74 +3,138 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';" />
+    content="default-src 'self'; img-src 'self' https: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
   <title>User Card – Chattering</title>
-  <link rel="stylesheet" href="usercard.css" />
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:'Segoe UI',system-ui,-apple-system,'Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji',sans-serif;font-size:12px;overflow:hidden;user-select:none;-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
+body{--bg:#18181b;--bg2:#1f1f23;--bg3:#26262c;--bg4:#2d2d33;--border:#2e2e35;--text:#efeff1;--muted:#adadb8;--dim:#6b6b74;--accent:#9147ff;--danger:#e91916;--danger-dim:rgba(233,25,22,.15);--success:#00c853;--success-dim:rgba(0,200,83,.15);--warn:#ffd600;--warn-dim:rgba(255,214,0,.15);background:var(--bg);color:var(--text)}
+body.theme-light{--bg:#f3f3f5;--bg2:#fff;--bg3:#e9e9ed;--bg4:#dcdce2;--border:#d0d0d8;--text:#0e0e10;--muted:#4a4a52;--dim:#9898a1;--danger:#c0100e;--danger-dim:rgba(192,16,14,.1);--success:#00a846;--success-dim:rgba(0,168,70,.1);--warn:#d4a800;--warn-dim:rgba(212,168,0,.1)}
+body.theme-midnight{--bg:#0a0a14;--bg2:#12122a;--bg3:#1a1a3a;--bg4:#22224a;--border:#2a2a60;--text:#e0e0ff;--muted:#a0a0d0;--dim:#6060a0;--accent:#6366f1;--danger:#f43f5e;--danger-dim:rgba(244,63,94,.15);--success:#34d399;--success-dim:rgba(52,211,153,.15);--warn:#eab308;--warn-dim:rgba(234,179,8,.15)}
+body.theme-sakura{--bg:#2d1f2d;--bg2:#3d2a3d;--bg3:#4d354d;--bg4:#5d4560;--border:#6d5570;--text:#ffe4ec;--muted:#d4a4b4;--dim:#b4849c;--accent:#ffb7c5;--danger:#ff6b8a;--danger-dim:rgba(255,107,138,.15);--success:#98fb98;--success-dim:rgba(152,251,152,.15);--warn:#ffa500;--warn-dim:rgba(255,165,0,.15)}
+body.theme-gray{--bg:#2d2d2d;--bg2:#363636;--bg3:#404040;--bg4:#4a4a4a;--border:#505050;--text:#e0e0e0;--muted:#a0a0a0;--dim:#707070;--accent:#6b6b6b;--danger:#d9534f;--danger-dim:rgba(217,83,79,.15);--success:#5cb85c;--success-dim:rgba(92,184,92,.15);--warn:#f0ad4e;--warn-dim:rgba(240,173,78,.15)}
+body.theme-lightgray{--bg:#e8e8e8;--bg2:#f0f0f0;--bg3:#f5f5f5;--bg4:#dadada;--border:#ccc;--text:#1a1a1a;--muted:#555;--dim:#888;--accent:#666;--danger:#f44336;--danger-dim:rgba(244,67,54,.1);--success:#4caf50;--success-dim:rgba(76,175,80,.1);--warn:#ff9800;--warn-dim:rgba(255,152,0,.1)}
+#uc-root{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+#uc-header{display:flex;align-items:center;gap:7px;padding:7px 8px 7px 10px;background:var(--bg2);border-bottom:1px solid var(--border);-webkit-app-region:drag;flex-shrink:0}
+#uc-platform-icon{display:flex;align-items:center;width:14px;height:14px;flex-shrink:0;-webkit-app-region:no-drag}
+#uc-platform-icon svg{width:14px;height:14px;display:block}
+#uc-header-title{flex:1;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#uc-close-btn{width:20px;height:20px;background:transparent;border:none;color:var(--dim);cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center;-webkit-app-region:no-drag;flex-shrink:0;transition:background 100ms,color 100ms}
+#uc-close-btn:hover{background:var(--danger);color:#fff}
+#uc-info{display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+#uc-avatar{width:46px;height:46px;border-radius:50%;object-fit:cover;background:var(--bg3);flex-shrink:0}
+#uc-name-block{flex:1;min-width:0}
+#uc-displayname{display:block;font-weight:700;font-size:14px;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;transition:opacity 100ms}
+#uc-displayname:hover{opacity:.75;text-decoration:underline}
+#uc-username-line{display:block;font-size:11px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#uc-badges-row{display:flex;gap:3px;margin-top:5px;flex-wrap:wrap}
+.uc-badge-img{width:14px;height:14px;object-fit:contain}
+#uc-stats{display:flex;padding:7px 12px;gap:20px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}
+.uc-stat{display:flex;flex-direction:column;align-items:center;gap:1px}
+.uc-stat-lbl{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.3px}
+.uc-stat-val{font-size:13px;font-weight:700;color:var(--text)}
+#uc-history{flex:1;display:flex;flex-direction:column;min-height:0;border-bottom:1px solid var(--border)}
+.uc-section-label{font-size:9px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.4px;padding:6px 10px 3px;background:var(--bg2);flex-shrink:0}
+#uc-history-list{flex:1;overflow-y:auto;padding:4px 6px 6px;display:flex;flex-direction:column;gap:2px}
+.uc-msg{padding:4px 6px;background:var(--bg3);border-left:2px solid var(--border);font-size:11px;line-height:1.45;color:var(--text);word-break:break-word}
+.uc-msg-time{font-size:9px;color:var(--dim);margin-right:5px}
+#uc-mod{padding:8px 10px 10px;background:var(--bg2);flex-shrink:0}
+.uc-mod-row{display:flex;gap:4px;margin-bottom:5px}
+.mod-btn{flex:1;height:26px;padding:0 6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-size:11px;font-weight:600;cursor:pointer;transition:background 100ms,opacity 100ms;white-space:nowrap}
+.mod-btn:hover:not(:disabled){background:var(--bg4)}
+.mod-btn:disabled{opacity:.30;cursor:not-allowed}
+.timeout-btn{color:var(--warn)}.timeout-btn:hover:not(:disabled){background:var(--warn-dim)}
+.ban-btn{color:var(--danger)}.ban-btn:hover:not(:disabled){background:var(--danger-dim)}.ban-btn[data-confirming]{background:var(--danger-dim);border-color:var(--danger)}
+.unban-btn{color:var(--success)}.unban-btn:hover:not(:disabled){background:var(--success-dim)}
+#mod-reason{width:100%;height:26px;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:0 8px;font-size:11px;outline:none;transition:border-color 150ms}
+#mod-reason::placeholder{color:var(--dim)}#mod-reason:focus{border-color:var(--accent)}#mod-reason:disabled{opacity:.30;cursor:not-allowed}
+.hidden{display:none!important}
+</style>
 </head>
-<body class="theme-dark">
-
-  <div id="uc-root">
-
-    <!-- ── Drag bar ─────────────────────────────────────────────────────── -->
-    <header id="uc-header">
-      <span id="uc-platform-icon"></span>
-      <span id="uc-header-title">Usuario</span>
-      <button id="uc-close-btn" title="Cerrar">✕</button>
-    </header>
-
-    <!-- ── User info ─────────────────────────────────────────────────────── -->
-    <section id="uc-info">
-      <img id="uc-avatar" src="" alt="avatar" />
-      <div id="uc-name-block">
-        <a id="uc-displayname" href="#" title="Ver perfil en navegador"></a>
-        <span id="uc-username-line"></span>
-        <div id="uc-badges-row"></div>
-      </div>
-    </section>
-
-    <!-- ── Stats ─────────────────────────────────────────────────────────── -->
-    <div id="uc-stats">
-      <div class="uc-stat">
-        <span class="uc-stat-lbl">Mensajes</span>
-        <span class="uc-stat-val" id="stat-msgs">0</span>
-      </div>
-      <div class="uc-stat">
-        <span class="uc-stat-lbl">Sub</span>
-        <span class="uc-stat-val" id="stat-sub">—</span>
-      </div>
-      <div class="uc-stat">
-        <span class="uc-stat-lbl">Mod</span>
-        <span class="uc-stat-val" id="stat-mod">—</span>
-      </div>
+<body>
+<div id="uc-root">
+  <header id="uc-header">
+    <span id="uc-platform-icon"></span>
+    <span id="uc-header-title">Usuario</span>
+    <button id="uc-close-btn">✕</button>
+  </header>
+  <section id="uc-info">
+    <img id="uc-avatar" src="" alt="avatar" />
+    <div id="uc-name-block">
+      <a id="uc-displayname" href="#">—</a>
+      <span id="uc-username-line"></span>
+      <div id="uc-badges-row"></div>
     </div>
-
-    <!-- ── Message history ───────────────────────────────────────────────── -->
-    <section id="uc-history">
-      <div class="uc-section-label">Mensajes recientes</div>
-      <div id="uc-history-list"></div>
-    </section>
-
-    <!-- ── Moderation ────────────────────────────────────────────────────── -->
-    <section id="uc-mod">
-      <div class="uc-section-label" id="uc-mod-label">Moderación</div>
-
-      <div class="uc-mod-row" id="uc-timeout-btns">
-        <button class="mod-btn timeout-btn" data-secs="60">1m</button>
-        <button class="mod-btn timeout-btn" data-secs="600">10m</button>
-        <button class="mod-btn timeout-btn" data-secs="1800">30m</button>
-        <button class="mod-btn timeout-btn" data-secs="86400">24h</button>
-      </div>
-
-      <div class="uc-mod-row">
-        <button class="mod-btn ban-btn"   id="mod-ban">Ban</button>
-        <button class="mod-btn unban-btn" id="mod-unban">Unban</button>
-      </div>
-
-      <input type="text" id="mod-reason" placeholder="Razón (opcional)" autocomplete="off" />
-    </section>
-
+  </section>
+  <div id="uc-stats">
+    <div class="uc-stat"><span class="uc-stat-lbl">Mensajes</span><span class="uc-stat-val" id="stat-msgs">0</span></div>
+    <div class="uc-stat"><span class="uc-stat-lbl">Sub</span><span class="uc-stat-val" id="stat-sub">—</span></div>
+    <div class="uc-stat"><span class="uc-stat-lbl">Mod</span><span class="uc-stat-val" id="stat-mod">—</span></div>
   </div>
-
-  <script src="usercard.js"></script>
+  <section id="uc-history">
+    <div class="uc-section-label">Mensajes recientes</div>
+    <div id="uc-history-list"></div>
+  </section>
+  <section id="uc-mod">
+    <div class="uc-section-label" id="uc-mod-label">Moderación</div>
+    <div class="uc-mod-row">
+      <button class="mod-btn timeout-btn" data-secs="60">1m</button>
+      <button class="mod-btn timeout-btn" data-secs="600">10m</button>
+      <button class="mod-btn timeout-btn" data-secs="1800">30m</button>
+      <button class="mod-btn timeout-btn" data-secs="86400">24h</button>
+    </div>
+    <div class="uc-mod-row">
+      <button class="mod-btn ban-btn" id="mod-ban">Ban</button>
+      <button class="mod-btn unban-btn" id="mod-unban">Unban</button>
+    </div>
+    <input type="text" id="mod-reason" placeholder="Razón (opcional)" autocomplete="off" />
+  </section>
+</div>
+<script>
+'use strict';
+const ICONS={twitch:`<svg viewBox="0 0 24 24"><path fill="#9147ff" d="M11.64 5.93h1.43v4.28h-1.43m3.93-4.28H17v4.28h-1.43M7 2L3.43 5.57v12.86h4.28V22l3.58-3.57h2.85L20.57 12V2m-1.43 9.29l-2.85 2.85h-2.86l-2.5 2.5v-2.5H7.14V3.43h12z"/></svg>`,youtube:`<svg viewBox="0 0 24 24"><path fill="#ff0000" d="M21.58 7.19c-.23-.87-.91-1.56-1.78-1.79C18.25 5 12 5 12 5s-6.25 0-7.8.4c-.87.23-1.55.92-1.78 1.79C2 8.75 2 12 2 12s0 3.25.42 4.81c.23.87.91 1.56 1.78 1.79C5.75 19 12 19 12 19s6.25 0 7.8-.4c.87-.23 1.55-.92 1.78-1.79C22 15.25 22 12 22 12s0-3.25-.42-4.81zM10 15V9l5.2 3-5.2 3z"/></svg>`,tiktok:`<svg viewBox="0 0 24 24"><path fill="#ff0050" d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.34 6.34 0 00-.79-.05A6.34 6.34 0 003.15 15.3a6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34l-.01-8.91a8.16 8.16 0 004.77 1.52V4.46a4.85 4.85 0 01-.99-.23z"/></svg>`};
+const THEMES=['theme-dark','theme-light','theme-gray','theme-lightgray','theme-sakura','theme-midnight'];
+function applyTheme(t){document.body.classList.remove(...THEMES);if(t&&t!=='dark')document.body.classList.add('theme-'+t);}
+function esc(s){const d=document.createElement('span');d.textContent=s||'';return d.innerHTML;}
+function url(platform,username,channelId){const c=(username||'').replace(/^@/,'');if(platform==='twitch')return'https://twitch.tv/'+c;if(platform==='youtube')return channelId?'https://www.youtube.com/channel/'+channelId:'https://www.youtube.com/@'+c;if(platform==='tiktok')return'https://www.tiktok.com/@'+c;return'#';}
+let cur=null;
+function render(data){
+  cur=data;
+  const{platform='twitch',username='',displayName='',color,avatarUrl,badges=[],messages=[],isModerator=false,isSub=false,channelId,theme}=data;
+  applyTheme(theme||'dark');
+  document.getElementById('uc-platform-icon').innerHTML=ICONS[platform]||'';
+  document.getElementById('uc-header-title').textContent=displayName||username;
+  const av=document.getElementById('uc-avatar');
+  if(avatarUrl){av.src=avatarUrl;av.style.display='';}else{av.style.display='none';}
+  const nm=document.getElementById('uc-displayname');
+  nm.textContent=displayName||username;
+  if(color)nm.style.color=color;
+  const pu=url(platform,username,channelId);
+  nm.onclick=e=>{e.preventDefault();window.chattering?.usercard?.openProfile(pu);};
+  document.getElementById('uc-username-line').textContent=username!==displayName?'@'+(username||'').replace(/^@/,''):'';
+  const br=document.getElementById('uc-badges-row');br.innerHTML='';
+  (badges||[]).forEach(b=>{if(!b.url)return;const i=document.createElement('img');i.className='uc-badge-img';i.src=b.url;i.alt=b.title||'';br.appendChild(i);});
+  document.getElementById('stat-msgs').textContent=messages.length;
+  document.getElementById('stat-sub').textContent=isSub?'✓':'—';
+  document.getElementById('stat-mod').textContent=isModerator?'✓':'—';
+  const list=document.getElementById('uc-history-list');list.innerHTML='';
+  (messages||[]).slice(-25).forEach(msg=>{const el=document.createElement('div');el.className='uc-msg';const t=new Date(msg.timestamp||Date.now()).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'});el.innerHTML='<span class="uc-msg-time">'+t+'</span>'+esc(msg.message);list.appendChild(el);});
+  list.scrollTop=list.scrollHeight;
+  const modEnabled=platform==='twitch';
+  document.querySelectorAll('.mod-btn').forEach(b=>b.disabled=!modEnabled);
+  document.getElementById('mod-reason').disabled=!modEnabled;
+  const pl={youtube:'YouTube',tiktok:'TikTok'}[platform];
+  document.getElementById('uc-mod-label').textContent=modEnabled?'Moderación':'Moderación (no disponible en '+(pl||platform)+')';
+}
+document.querySelectorAll('.timeout-btn').forEach(btn=>{btn.addEventListener('click',()=>{if(!cur)return;const s=parseInt(btn.dataset.secs,10);const r=document.getElementById('mod-reason').value.trim()||'Moderación';window.chattering.twitch.timeout(cur.channel,cur.username,s,r);const o=btn.textContent;btn.textContent=o+' ✓';setTimeout(()=>btn.textContent=o,2000);});});
+const banBtn=document.getElementById('mod-ban');
+banBtn.addEventListener('click',()=>{if(!cur)return;if(banBtn.dataset.confirming){window.chattering.twitch.ban(cur.channel,cur.username,document.getElementById('mod-reason').value.trim()||'Moderación');delete banBtn.dataset.confirming;banBtn.textContent='Baneado ✓';setTimeout(()=>banBtn.textContent='Ban',2000);}else{banBtn.dataset.confirming='1';banBtn.textContent='¿Confirmar?';setTimeout(()=>{if(banBtn.dataset.confirming){delete banBtn.dataset.confirming;banBtn.textContent='Ban';}},3500);}});
+document.getElementById('mod-unban').addEventListener('click',()=>{if(!cur)return;window.chattering.twitch.unban(cur.channel,cur.username);const b=document.getElementById('mod-unban');b.textContent='Desbaneado ✓';setTimeout(()=>b.textContent='Unban',2000);});
+document.getElementById('uc-close-btn').addEventListener('click',()=>window.chattering?.usercard?.close());
+if(window.chattering?.usercard?._onData)window.chattering.usercard._onData(data=>render(data));
+if(window.chattering?._onSettingsUpdated)window.chattering._onSettingsUpdated(s=>{if(s?.theme)applyTheme(s.theme);});
+if(window.chattering?.settings?.get)window.chattering.settings.get(['theme']).then(s=>{if(s?.theme)applyTheme(s.theme);}).catch(()=>{});
+</script>
 </body>
 </html>

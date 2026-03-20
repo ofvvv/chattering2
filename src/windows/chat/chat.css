@@ -161,6 +161,13 @@ html, body {
 }
 
 /* ── Scrollbar ────────────────────────────────────────────────────────────── */
+/* Always-visible scrollbar on the chat viewport */
+#chat-viewport::-webkit-scrollbar { width: 6px; }
+#chat-viewport::-webkit-scrollbar-track { background: var(--bg-tertiary); }
+#chat-viewport::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+#chat-viewport::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* Global (other elements) — thin and subtle */
 ::-webkit-scrollbar { width: var(--scrollbar-w); }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
@@ -510,6 +517,21 @@ body {
   flex-direction: column;
   padding: 4px 0;
   gap: 1px;
+}
+
+/* ── Message entry animation ─────────────────────────────────────────────── */
+@keyframes msgSlideIn {
+  from { opacity: 0; transform: translateX(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Enabled by default — disabled when body has .no-msg-anim */
+.chat-message:not(.system) {
+  animation: msgSlideIn 160ms ease;
+}
+
+body.no-msg-anim .chat-message {
+  animation: none !important;
 }
 
 /* ── Chat message ────────────────────────────────────────────────────────── */
@@ -1183,6 +1205,63 @@ body {
   margin-left: 5px;
   font-style: normal;
 }
+
+/* ── High contrast mode ──────────────────────────────────────────────────── */
+body.high-contrast {
+  --text-primary:  #ffffff;
+  --text-muted:    #e0e0e0;
+  --text-dim:      #b0b0b0;
+  --border:        #666666;
+  --bg-hover:      rgba(255,255,255,.12);
+}
+body.high-contrast .chat-message { border-bottom-color: var(--border); }
+body.high-contrast .msg-author   { font-weight: 800; }
+
+/* ── Reduce motion ────────────────────────────────────────────────────────── */
+body.reduce-motion *,
+body.reduce-motion *::before,
+body.reduce-motion *::after {
+  animation-duration:   0ms !important;
+  transition-duration:  0ms !important;
+}
+
+/* ── Timestamps — toggled by body class ──────────────────────────────────── */
+.msg-timestamp { display: none; }
+body.show-timestamps .msg-timestamp { display: inline; }
+
+/* ── Filtered-out messages (hidden by active filter) ─────────────────────── */
+.chat-message.filtered-out { display: none !important; }
+
+/* ── Filter chip buttons ─────────────────────────────────────────────────── */
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.filter-chip {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 100ms, color 100ms, border-color 100ms;
+}
+.filter-chip:hover { background: var(--bg-hover); color: var(--text-primary); }
+.filter-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.filter-chip.chip-twitch.active  { background: var(--twitch-color);  border-color: var(--twitch-color); }
+.filter-chip.chip-youtube.active { background: var(--youtube-color); border-color: var(--youtube-color); }
+.filter-chip.chip-tiktok.active  { background: var(--tiktok-color);  border-color: var(--tiktok-color); }
+
+#btn-filters.has-active-filter svg { fill: var(--accent); }
 
 /* ── Utility ─────────────────────────────────────────────────────────────── */
 .hidden { display: none !important; }

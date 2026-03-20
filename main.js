@@ -492,7 +492,7 @@ function openUsercardWindow(data, x, y) {
     }
   });
 
-  usercardWindow.loadFile(path.join(__dirname, 'src/windows/usercard/index.html'));
+  usercardWindow.loadFile(path.join(__dirname, 'src/windows/usercard/usercard.html'));
 
   usercardWindow.webContents.once('did-finish-load', () => {
     if (usercardWindow && !usercardWindow.isDestroyed()) {

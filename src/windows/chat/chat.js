@@ -220,79 +220,126 @@ function checkConnections() {
   });
 }
 
-// ─── Filters ────────────────────────────────────────────────────────────────────
+// ─── Filter state ─────────────────────────────────────────────────────────────
+// Stored directly on state.settings.activeFilters for persistence
+function getActiveFilters() {
+  return state.settings.activeFilters || { platforms: [], roles: [] };
+}
+
+function setActiveFilters(f) {
+  state.settings.activeFilters = f;
+  window.chattering.settings.set({ activeFilters: f });
+  reapplyFilters();
+}
+
+// ─── Filters UI ───────────────────────────────────────────────────────────────
 function setupFilters() {
   const btnFilters = $('#btn-filters');
-  const dropdown = $('#filters-dropdown');
-  const filterPlatform = $('#filter-platform');
-  const filterType = $('#filter-type');
-  const filterSubs = $('#filter-subs');
-  const filterMods = $('#filter-mods');
-  const btnApply = $('#btn-apply-filters');
-  
-  // Toggle dropdown
-  btnFilters?.addEventListener('click', (e) => {
+  const dropdown   = $('#filters-dropdown');
+  if (!btnFilters || !dropdown) return;
+
+  btnFilters.addEventListener('click', (e) => {
     e.stopPropagation();
     dropdown.classList.toggle('hidden');
+    if (!dropdown.classList.contains('hidden')) syncFilterUI();
   });
-  
-  // Close dropdown when clicking outside
+
   document.addEventListener('click', (e) => {
     if (!dropdown.contains(e.target) && e.target !== btnFilters) {
       dropdown.classList.add('hidden');
     }
   });
-  
-  // Apply filters
-  btnApply?.addEventListener('click', () => {
-    const filters = {
-      platform: filterPlatform?.value || 'all',
-      type: filterType?.value || 'all',
-      subsOnly: filterSubs?.checked || false,
-      showMods: filterMods?.checked !== false
-    };
-    
-    state.settings.filters = filters;
-    window.chattering.settings.set({ filters });
-    applyFilters(filters);
-    dropdown.classList.add('hidden');
-    showToast('Filtros aplicados', 'success');
+
+  // Platform chip buttons
+  dropdown.querySelectorAll('[data-filter-platform]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = btn.dataset.filterPlatform;
+      const f = getActiveFilters();
+      const idx = f.platforms.indexOf(p);
+      if (idx === -1) f.platforms.push(p); else f.platforms.splice(idx, 1);
+      setActiveFilters(f);
+      syncFilterUI();
+    });
   });
-  
-  // Load saved filters
-  if (state.settings.filters) {
-    filterPlatform.value = state.settings.filters.platform || 'all';
-    filterType.value = state.settings.filters.type || 'all';
-    if (filterSubs) filterSubs.checked = state.settings.filters.subsOnly || false;
-    if (filterMods) filterMods.checked = state.settings.filters.showMods !== false;
-    applyFilters(state.settings.filters);
+
+  // Role chip buttons
+  dropdown.querySelectorAll('[data-filter-role]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const r = btn.dataset.filterRole;
+      const f = getActiveFilters();
+      const idx = f.roles.indexOf(r);
+      if (idx === -1) f.roles.push(r); else f.roles.splice(idx, 1);
+      setActiveFilters(f);
+      syncFilterUI();
+    });
+  });
+
+  // Clear all
+  const btnClear = $('#btn-clear-filters');
+  btnClear?.addEventListener('click', () => {
+    setActiveFilters({ platforms: [], roles: [] });
+    syncFilterUI();
+  });
+
+  // Load saved
+  reapplyFilters();
+  syncFilterUI();
+}
+
+function syncFilterUI() {
+  const f = getActiveFilters();
+  const dropdown = $('#filters-dropdown');
+  if (!dropdown) return;
+
+  dropdown.querySelectorAll('[data-filter-platform]').forEach(btn => {
+    btn.classList.toggle('active', f.platforms.includes(btn.dataset.filterPlatform));
+  });
+  dropdown.querySelectorAll('[data-filter-role]').forEach(btn => {
+    btn.classList.toggle('active', f.roles.includes(btn.dataset.filterRole));
+  });
+
+  const hasAny = f.platforms.length > 0 || f.roles.length > 0;
+  $('#btn-filters')?.classList.toggle('has-active-filter', hasAny);
+}
+
+function reapplyFilters() {
+  $$('#chat-messages .chat-message').forEach(row => {
+    row.classList.toggle('filtered-out', shouldFilterRow(row));
+  });
+}
+
+function shouldFilterRow(row) {
+  const f = getActiveFilters();
+
+  // Platform filter — show only selected platforms (OR logic)
+  if (f.platforms.length > 0) {
+    const matchesPlatform = f.platforms.some(p => row.classList.contains(`platform-${p}`));
+    if (!matchesPlatform) return true;
   }
+
+  // Role filter — show only messages from users with any of the selected roles (OR logic)
+  if (f.roles.length > 0) {
+    const matchesRole = f.roles.some(role => {
+      if (role === 'mod')  return row.dataset.isMod  === 'true';
+      if (role === 'vip')  return row.dataset.isVip  === 'true';
+      if (role === 'sub')  return row.dataset.isSub  === 'true';
+      if (role === 'owner') return row.dataset.isOwner === 'true';
+      return false;
+    });
+    if (!matchesRole) return true;
+  }
+
+  return false;
 }
 
-function applyFilters(filters) {
-  const messages = $$('.chat-message');
-  messages.forEach(msg => {
-    let show = true;
-    
-    // Platform filter
-    if (filters.platform && filters.platform !== 'all') {
-      if (!msg.classList.contains(`platform-${filters.platform}`)) {
-        show = false;
-      }
-    }
-    
-    // Type filter (events vs chat)
-    if (filters.type && filters.type !== 'all') {
-      const isEvent = msg.classList.contains('system') || msg.classList.contains('event-item');
-      if (filters.type === 'chat' && isEvent) show = false;
-      if (filters.type === 'events' && !isEvent) show = false;
-    }
-    
-    msg.classList.toggle('hidden', !show);
-  });
+// ─── Chat filter (per-message at render time) ─────────────────────────────────
+function shouldFilterMessage(msg) {
+  const s = state.settings;
+  // Bot list
+  const botList = (s.botList || '').split(',').map(b => b.trim().toLowerCase()).filter(Boolean);
+  if (botList.includes((msg.username || '').toLowerCase())) return true;
+  return false;
 }
-
-// ─── Platform tab switching ───────────────────────────────────────────────────
 function setupTabSwitching() {
   $$('.platform-tab').forEach(tab => {
     tab.addEventListener('click', () => {
@@ -454,6 +501,7 @@ function registerPlatformListeners() {
   // YouTube
   window.chattering.youtube.onMessage(data => {
     appendChatMessage({ platform: 'youtube', ...data });
+    maybeSpeak(data);
   });
   window.chattering.youtube.onEvent(data => {
     appendDockEvent(data);
@@ -500,6 +548,11 @@ function appendChatMessage(msg) {
     row.className = `chat-message platform-${platform}`;
     row.dataset.id = id || '';
     row.dataset.user = username;
+    // Store roles for the filter system
+    row.dataset.isMod  = !!(msg.isMod  || badges.some(b => /mod|broadcaster/i.test(b.title||'')));
+    row.dataset.isVip  = !!(msg.isVip  || badges.some(b => /vip/i.test(b.title||'')));
+    row.dataset.isSub  = !!(msg.isSub  || badges.some(b => /sub/i.test(b.title||'')));
+    row.dataset.isOwner = !!(msg.isOwner || badges.some(b => /broadcaster/i.test(b.title||'')));
     if (isAction)    row.classList.add('action');
     if (deleted)     row.classList.add('deleted');
     if (highlighted) row.classList.add('highlighted');
@@ -563,7 +616,8 @@ function appendChatMessage(msg) {
     }
 
     chatMessages.appendChild(row);
-    console.log('[Chat Renderer] ✅ Mensaje agregado al DOM:', msg.id, 'Plataforma:', msg.platform);
+    // Apply active filters to the newly added row
+    if (shouldFilterRow(row)) row.classList.add('filtered-out');
     trimMessageList();
 
     if (!state.isScrollPaused) {
@@ -1188,26 +1242,37 @@ function registerSettingsListener() {
 function applySettings(s) {
   const body = document.body;
 
-  // Theme - support all themes
-  body.classList.remove('theme-dark', 'theme-light', 'theme-gray', 'theme-lightgray', 'theme-sakura', 'theme-midnight');
+  // ── Theme ──────────────────────────────────────────────────────────────────
+  body.classList.remove('theme-dark','theme-light','theme-gray','theme-lightgray','theme-sakura','theme-midnight');
   body.classList.add(`theme-${s.theme || 'dark'}`);
 
-  // Translucent
+  // ── Translucent ───────────────────────────────────────────────────────────
   body.classList.toggle('translucent', !!s.translucent);
 
-  // Font size
-  if (s.fontSize) {
-    document.documentElement.style.setProperty('--font-size', s.fontSize + 'px');
-  }
+  // ── Font size ─────────────────────────────────────────────────────────────
+  if (s.fontSize) document.documentElement.style.setProperty('--font-size', s.fontSize + 'px');
 
-  // TTS
-  state.ttsEnabled = !!s.ttsEnabled;
+  // ── Message animations ────────────────────────────────────────────────────
+  body.classList.toggle('no-msg-anim', s.messageAnimations === false);
 
-  // Max messages
+  // ── Reduce motion — disables all CSS transitions and animations ───────────
+  body.classList.toggle('reduce-motion', !!s.reduceMotion);
+
+  // ── High contrast — stronger text / borders ───────────────────────────────
+  body.classList.toggle('high-contrast', !!s.highContrast);
+
+  // ── Timestamps — toggle visibility on all existing + future messages ──────
+  body.classList.toggle('show-timestamps', !!s.showTimestamps);
+
+  // ── Scroll speed (1-5) — maps to scroll-behavior transition duration ──────
+  const speedMs = [0, 60, 120, 200, 300, 450][s.scrollSpeed || 3] ?? 200;
+  document.documentElement.style.setProperty('--scroll-speed', speedMs + 'ms');
+
+  // ── Max messages ──────────────────────────────────────────────────────────
   if (s.maxMessages) state.MAX_MESSAGES = s.maxMessages;
 
-  // Show/hide timestamps
-  // Handled dynamically per message
+  // ── TTS ───────────────────────────────────────────────────────────────────
+  state.ttsEnabled = !!s.ttsEnabled;
 
   state.settings = s;
 }
@@ -1271,33 +1336,26 @@ function ttsProcessQueue() {
   if (!state.ttsQueue.length) { state.ttsBusy = false; return; }
   state.ttsBusy = true;
   const text = state.ttsQueue.shift();
-  const utt = new SpeechSynthesisUtterance(text);
-  
-  // Select voice with variation - cycle through available voices
+  const utt  = new SpeechSynthesisUtterance(text);
+
   if (availableVoices.length > 0) {
     ttsMessageCount++;
-    // Select different voice every 3 messages for variety
-    const voiceIndex = ttsMessageCount % Math.min(availableVoices.length, 3);
-    const preferredVoices = availableVoices.filter(v => v.lang.startsWith('es') || v.lang.startsWith('en'));
-    if (preferredVoices.length > 0) {
-      utt.voice = preferredVoices[(ttsMessageCount + voiceIndex) % preferredVoices.length];
-    } else {
-      utt.voice = availableVoices[voiceIndex];
-    }
+    // Prefer Spanish/English voices; cycle through up to 5 for variety
+    const preferred = availableVoices.filter(v => v.lang.startsWith('es') || v.lang.startsWith('en'));
+    const pool      = preferred.length > 0 ? preferred : availableVoices;
+    utt.voice       = pool[ttsMessageCount % Math.min(pool.length, 5)];
   } else if (state.ttsVoice) {
     utt.voice = state.ttsVoice;
   }
-  
-  // Base settings from user
-  const baseRate = state.settings.ttsRate || 1;
-  const basePitch = state.settings.ttsPitch || 1;
-  
-  // Add slight variation to rate and pitch for variety (±10%)
-  utt.rate = baseRate * (0.9 + Math.random() * 0.2);
-  utt.pitch = basePitch * (0.95 + Math.random() * 0.1);
-  utt.volume = state.settings.ttsVolume || 1;
-  
-  utt.onend = () => ttsProcessQueue();
+
+  const baseRate  = parseFloat(state.settings.ttsRate)  || 1;
+  const basePitch = parseFloat(state.settings.ttsPitch) || 1;
+  // ±20% rate variation, ±25% pitch variation — clamped to valid API ranges
+  utt.rate   = Math.min(10, Math.max(0.1, baseRate  * (0.8 + Math.random() * 0.4)));
+  utt.pitch  = Math.min(2,  Math.max(0,   basePitch * (0.75 + Math.random() * 0.5)));
+  utt.volume = parseFloat(state.settings.ttsVolume) || 1;
+
+  utt.onend  = () => ttsProcessQueue();
   utt.onerror = () => ttsProcessQueue();
   window.speechSynthesis.speak(utt);
 }

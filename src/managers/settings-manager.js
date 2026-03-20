@@ -12,16 +12,17 @@ const Store = require('electron-store');
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 const DEFAULTS = {
   // Appearance
-  theme:           'dark',
-  alwaysOnTop:     false,
-  translucent:     false,
-  transparency:    100,
-  fontSize:        13,
-  hideBots:        false,
-  showPlatformLogos: true,
-  maxMessages:     500,
-  showTimestamps:  false,
-  animatedEmotes:  true,
+  theme:              'dark',
+  alwaysOnTop:        false,
+  translucent:        false,
+  transparency:       100,
+  fontSize:           13,
+  hideBots:           false,
+  showPlatformLogos:  true,
+  maxMessages:        500,
+  showTimestamps:     false,
+  animatedEmotes:     true,
+  messageAnimations:  true,
 
   // Window state
   mainWindowWidth:  420,

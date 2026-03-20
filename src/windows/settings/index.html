@@ -90,6 +90,14 @@
             <span class="toggle-track"><span class="toggle-thumb"></span></span>
           </label>
         </div>
+
+        <div class="setting-group">
+          <label class="setting-label">Animación de entrada de mensajes</label>
+          <label class="toggle">
+            <input type="checkbox" id="chk-msg-anim" data-key="messageAnimations" checked />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
       </section>
 
       <!-- ── Chat ────────────────────────────────────────────────────────── -->
@@ -164,15 +172,43 @@
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">TTS solo Twitch</label>
+          <label class="setting-label">Solo leer mensaje <span class="hint">(sin decir el usuario)</span></label>
           <label class="toggle">
-            <input type="checkbox" id="chk-tts-twitch-only" data-key="ttsOnlyTwitch" />
+            <input type="checkbox" id="chk-tts-msg-only" data-key="ttsMessageOnly" checked />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="setting-group separator"></div>
+
+        <div class="setting-group">
+          <label class="setting-label">TTS en Twitch</label>
+          <label class="toggle">
+            <input type="checkbox" id="chk-tts-twitch" data-key="ttsTwitch" checked />
             <span class="toggle-track"><span class="toggle-thumb"></span></span>
           </label>
         </div>
 
         <div class="setting-group">
-          <label class="setting-label" for="rng-tts-rate">Velocidad: <strong id="lbl-tts-rate">1</strong></label>
+          <label class="setting-label">TTS en YouTube</label>
+          <label class="toggle">
+            <input type="checkbox" id="chk-tts-youtube" data-key="ttsYoutube" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">TTS en TikTok</label>
+          <label class="toggle">
+            <input type="checkbox" id="chk-tts-tiktok" data-key="ttsTikTok" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="setting-group separator"></div>
+
+        <div class="setting-group">
+          <label class="setting-label" for="rng-tts-rate">Velocidad base: <strong id="lbl-tts-rate">1</strong></label>
           <input type="range" id="rng-tts-rate" data-key="ttsRate" min="0.5" max="2" step="0.1" value="1" />
         </div>
 
@@ -182,7 +218,7 @@
         </div>
 
         <div class="setting-group">
-          <label class="setting-label" for="rng-tts-pitch">Tono: <strong id="lbl-tts-pitch">1</strong></label>
+          <label class="setting-label" for="rng-tts-pitch">Tono base: <strong id="lbl-tts-pitch">1</strong></label>
           <input type="range" id="rng-tts-pitch" data-key="ttsPitch" min="0" max="2" step="0.1" value="1" />
         </div>
       </section>
@@ -333,12 +369,6 @@
           </div>
         </div>
 
-        <!-- Client ID (for advanced users) -->
-        <div class="setting-group" style="margin-top: 20px;">
-          <label class="setting-label">Twitch Client ID (avanzado)</label>
-          <input type="text" class="setting-input" id="txt-twitch-client-id"
-            data-key="twitchClientId" placeholder="w2q6ngvevmf1gkuu1ngiqwmyzqmjrt" autocomplete="off" />
-        </div>
       </section>
 
       <!-- ── Accessibility ──────────────────────────────────────────────── -->

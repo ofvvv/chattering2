@@ -166,7 +166,19 @@ function register(ipcMain, ctx) {
   ipcMain.handle('tiktok:connect', async (_e, username, sessionId) => {
     return TikTokConnector.connect(username, getMainWindow, sessionId);
   });
-  ipcMain.handle('tiktok:disconnect', async () => TikTokConnector.disconnect());
+  ipcMain.handle('tiktok:disconnect', async () => {
+    await TikTokConnector.disconnect();
+    // Also wipe the persistent Electron session so re-login starts fresh
+    try {
+      const { session } = require('electron');
+      const tiktokSession = session.fromPartition('persist:tiktok');
+      await tiktokSession.clearStorageData({ storages: ['cookies'] });
+      console.log('[TikTok] Session cookies cleared');
+    } catch (e) {
+      console.error('[TikTok] Error clearing cookies:', e.message);
+    }
+    return { ok: true };
+  });
 
   // ── YouTube ────────────────────────────────────────────────────────────────
   ipcMain.handle('youtube:connect', async (_e, channelHandle) => {
@@ -226,6 +238,8 @@ function register(ipcMain, ctx) {
   // ── User Card ──────────────────────────────────────────────────────────────
   ipcMain.handle('usercard:open', (_e, data) => {
     const { screenX, screenY, ...cardData } = data;
+    // Inject current theme so the window renders correctly before settings are fetched
+    cardData.theme = SettingsManager.get().theme || 'dark';
     openUsercardWindow(cardData, screenX ?? 200, screenY ?? 200);
     return { ok: true };
   });

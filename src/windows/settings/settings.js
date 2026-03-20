@@ -253,46 +253,42 @@ function setupWindowButtons() {
     updateConnectionStatus('youtube', false);
   });
 
-  // ── TikTok Login ────────────────────────────────────────────────────────────
   $('#btn-tiktok-login')?.addEventListener('click', () => {
     console.log('[Settings] TikTok login clicked');
     window.chattering.tiktok.openAuthWindow();
   });
 
   $('#btn-tiktok-logout')?.addEventListener('click', async () => {
-    console.log('[Settings] TikTok logout clicked');
-    if (!confirm('¿Cerrar sesión de TikTok? Esto eliminará las cookies guardadas.')) return;
-    // TikTok cookies are stored in session, we need to clear them
-    await window.chattering.settings.set({ tiktokCookies: null });
+    if (!confirm('¿Cerrar sesión de TikTok? Esto eliminará la sesión guardada.')) return;
+    await window.chattering.tiktok.disconnect();
+    await window.chattering.settings.set({ tiktokSessionId: '', tiktokCookies: null });
+    currentSettings.tiktokSessionId = '';
     currentSettings.tiktokCookies = null;
     updateConnectionStatus('tiktok', false);
     showSaved();
   });
 
-  // Listen for connection status updates from main window
+  // Listen for TikTok cookies captured — update status immediately
+  window.chattering.tiktok.onCookiesCaptured?.((cookies) => {
+    if (cookies) {
+      const sid = cookies.sessionid || cookies.sessionid_ss || null;
+      if (sid) currentSettings.tiktokSessionId = sid;
+      currentSettings.tiktokCookies = cookies;
+      updateConnectionStatus('tiktok', true);
+      showToast('Sesión de TikTok capturada', 'success');
+    }
+  });
+  // ── Listen for live status updates from connectors ──────────────────────────
   window.chattering.twitch.onStatus?.((data) => {
-    console.log('[Settings] Twitch status update:', data);
     updateConnectionStatus('twitch', data.connected);
   });
 
   window.chattering.youtube.onStatus?.((data) => {
-    console.log('[Settings] YouTube status update:', data);
     updateConnectionStatus('youtube', data.connected, data.message);
   });
 
   window.chattering.tiktok.onStatus?.((data) => {
-    console.log('[Settings] TikTok status update:', data);
     updateConnectionStatus('tiktok', data.connected);
-  });
-
-  // Listen for TikTok cookies captured
-  window.chattering.tiktok.onCookiesCaptured?.((cookies) => {
-    console.log('[Settings] TikTok cookies captured');
-    if (cookies) {
-      currentSettings.tiktokCookies = cookies;
-      updateConnectionStatus('tiktok', true);
-      showToast('Sesión de TikTok detectada', 'success');
-    }
   });
 
   // Check initial connection status
@@ -326,14 +322,10 @@ function updateConnectionStatus(platform, connected, customMsg = null) {
 }
 
 async function checkInitialConnectionStatus() {
-  // Check if we have credentials saved - update UI to show correct button state
-  if (currentSettings.twitchToken) {
-    updateConnectionStatus('twitch', true);
-  }
-  if (currentSettings.youtubeChannel) {
-    updateConnectionStatus('youtube', true);
-  }
-  if (currentSettings.tiktokCookies) {
+  if (currentSettings.twitchToken) updateConnectionStatus('twitch', true);
+  if (currentSettings.youtubeChannel) updateConnectionStatus('youtube', true);
+  // TikTok is "connected" when we have a saved sessionId or cookies
+  if (currentSettings.tiktokSessionId || currentSettings.tiktokCookies) {
     updateConnectionStatus('tiktok', true);
   }
 }

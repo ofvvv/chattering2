@@ -3,300 +3,301 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    Chattering – Twitch Connector
    ─────────────────────────────────────────────────────────────────────────
-   Uses tmi.js for IRC chat + Helix API for user cards & moderation.
-   Emits events to the main BrowserWindow via webContents.send().
+   Uses tmi.js for chat + Helix API for badges / user cards / moderation.
+   Moderation actions (ban / timeout / unban / delete) use the tmi.js
+   client directly — the bot must be a mod or the broadcaster.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const tmi = require('tmi.js');
-const SettingsManager = require('../managers/settings-manager');
+const tmi        = require('tmi.js');
 const { broadcast } = require('../utils');
 
 // ─── State ───────────────────────────────────────────────────────────────────
-let client      = null;
+let client        = null;
 let activeChannel = null;
+let activeToken   = null;
+let activeUserId  = null;
 let getMainWindow = null;
-let oauthToken    = null;
-let userId        = null;   // broadcaster's Twitch user ID
 
-// ─── Badge cache (loaded once per channel) ──────────────────────────────────
-const badgeCache = {};
+const CLIENT_ID = 'w2q6ngvevmf1gkuu1ngiqwmyzqmjrt';
 
 // ─── Connect ─────────────────────────────────────────────────────────────────
 async function connect(channel, token, getWin) {
-  if (client) {
-    await disconnect();
-  }
+  if (client) await disconnect();
+
   getMainWindow = getWin;
-  activeChannel = channel.toLowerCase();
-  oauthToken    = token || SettingsManager.get().twitchToken || null;
+  activeChannel = (channel || '').replace(/^#/, '').toLowerCase().trim();
+  activeToken   = (token || '').replace(/^oauth:/, '');
 
-  // Use default clientId if not set in settings
-  const defaultClientId = 'w2q6ngvevmf1gkuu1ngiqwmyzqmjrt';
-  const clientId = SettingsManager.get().twitchClientId || defaultClientId;
+  if (!activeChannel) throw new Error('Canal de Twitch requerido');
 
-  // Clean token
-  const cleanToken = oauthToken
-    ? oauthToken.startsWith('oauth:') ? oauthToken : `oauth:${oauthToken}`
-    : undefined;
+  // ── Resolve broadcaster user-id for badge / card fetches ─────────────────
+  try {
+    const headers = {
+      'Authorization': `Bearer ${activeToken}`,
+      'Client-Id':     CLIENT_ID
+    };
+    const res  = await globalThis.fetch(`https://api.twitch.tv/helix/users?login=${activeChannel}`, { headers });
+    const data = await res.json();
+    if (data.data?.[0]) activeUserId = data.data[0].id;
+  } catch (_) {}
 
-  // Try to resolve the broadcaster user ID for API calls
-  if (clientId && cleanToken) {
-    try {
-      const info = await helixGet(`https://api.twitch.tv/helix/users?login=${activeChannel}`,
-        cleanToken.replace('oauth:', ''), clientId);
-      if (info?.data?.[0]) userId = info.data[0].id;
-    } catch (_) { /* non-critical */ }
-  }
+  // ── Load channel badges ──────────────────────────────────────────────────
+  await loadBadges(activeUserId, activeToken);
 
-  // Load badges
-  await loadBadges(activeChannel, cleanToken?.replace('oauth:', ''), clientId);
-
-  // Build tmi client
+  // ── Create tmi.js client ─────────────────────────────────────────────────
   const opts = {
-    options: { debug: false },  // Disable tmi.js debug
-    connection: { reconnect: true, secure: true },
-    channels: [activeChannel]
+    options: { debug: false, skipUpdatingEmotesets: true },
+    connection: { secure: true, reconnect: true },
+    channels: [`#${activeChannel}`]
   };
 
-  if (cleanToken) {
-    opts.identity = {
-      username: activeChannel,
-      password: cleanToken
-    };
+  if (activeToken) {
+    opts.identity = { username: activeChannel, password: `oauth:${activeToken}` };
   }
 
   client = new tmi.Client(opts);
 
-  client.on('message',     onMessage);
-  client.on('cheer',       onCheer);
-  client.on('sub',         onSub);
-  client.on('resub',       onResub);
-  client.on('subgift',     onSubgift);
-  client.on('raided',      onRaid);
-  client.on('ban',         onBan);
-  client.on('timeout',     onTimeout);
-  client.on('messagedeleted', onMessageDeleted);
-  client.on('connected',   () => emitStatus(true));
-  client.on('disconnected',() => emitStatus(false));
+  // ── Events ───────────────────────────────────────────────────────────────
+  client.on('message', onMessage);
+  client.on('cheer', onCheer);
+  client.on('subscription', onSub);
+  client.on('resub', onResub);
+  client.on('subgift', onSubGift);
+  client.on('raided', onRaid);
+  client.on('redemption', onRedemption);
 
-  try {
-    await client.connect();
-    return { connected: true, userId };
-  } catch (err) {
-    console.error('[Twitch Connector] Error al conectar:', err.message);
-    return { connected: false, error: err.message };
-  }
+  client.on('messagedeleted', (_ch, _username, _msg, tags) => {
+    broadcast('twitch:messagedeleted', { id: tags['target-msg-id'] });
+  });
+  client.on('ban', (_ch, username) => {
+    broadcast('twitch:ban', { username });
+  });
+  client.on('timeout', (_ch, username, _reason, duration) => {
+    broadcast('twitch:timeout', { username, duration });
+  });
+
+  client.on('connected', () => {
+    console.log(`[Twitch] Conectado a #${activeChannel}`);
+    broadcast('twitch:status', { connected: true, channel: activeChannel, userId: activeUserId });
+  });
+  client.on('disconnected', (reason) => {
+    console.log(`[Twitch] Desconectado: ${reason}`);
+    broadcast('twitch:status', { connected: false, channel: activeChannel });
+  });
+
+  await client.connect();
+  return { connected: true, channel: activeChannel, userId: activeUserId };
 }
 
 // ─── Disconnect ───────────────────────────────────────────────────────────────
 async function disconnect() {
-  if (!client) return;
-  try { await client.disconnect(); } catch (_) {}
-  client = null;
+  if (client) {
+    try { await client.disconnect(); } catch (_) {}
+    client = null;
+  }
   activeChannel = null;
-  emitStatus(false);
+  activeToken   = null;
+  activeUserId  = null;
+  broadcast('twitch:status', { connected: false, channel: null });
 }
 
 // ─── Message handler ──────────────────────────────────────────────────────────
-function onMessage(channel, userstate, message, self) {
-  // Message handling
+function onMessage(channel, tags, message, self) {
+  if (self) return;
 
-  const isAction = message.startsWith('\u0001ACTION ');
-  const cleanMsg = isAction ? message.slice(8, -1) : message;
-  // Message logged below
-  const resolved = resolveBadges(userstate['badges'] || {});
+  const isMod  = tags.mod  || tags['user-type'] === 'mod'  || tags.badges?.broadcaster;
+  const isVip  = !!tags.badges?.vip;
+  const isSub  = !!tags.subscriber;
+  const isOwner = !!tags.badges?.broadcaster;
 
-  emit('twitch:message', {
-    id:          userstate.id,
+  // Build badge list from known badge sets
+  const badges = buildBadgeObjects(tags.badges || {}, tags['badge-info'] || {});
+
+  broadcast('twitch:message', {
+    id:          tags.id || String(Date.now()),
     platform:    'twitch',
-    username:    userstate.username,
-    displayName: userstate['display-name'] || userstate.username,
-    color:       userstate.color || '#9147ff',
-    message:     cleanMsg,
-    isAction,
-    emotes:      userstate.emotes || {},
-    badges:      resolved,
-    bits:        userstate.bits ? parseInt(userstate.bits) : 0,
-    highlighted: userstate['msg-id'] === 'highlighted-message'
+    username:    tags.username,
+    displayName: tags['display-name'] || tags.username,
+    color:       tags.color || null,
+    message,
+    badges,
+    emotes:      tags.emotes || {},
+    isAction:    tags['message-type'] === 'action',
+    bits:        tags.bits ? parseInt(tags.bits) : 0,
+    isMod:       !!isMod,
+    isVip,
+    isSub,
+    isOwner
   });
 }
 
-// ─── Cheer ────────────────────────────────────────────────────────────────────
-function onCheer(channel, userstate, message) {
-  emit('twitch:event', {
+// ─── Event handlers ───────────────────────────────────────────────────────────
+function onCheer(channel, tags, message) {
+  broadcast('twitch:event', {
     type:        'bits',
     platform:    'twitch',
-    username:    userstate.username,
-    displayName: userstate['display-name'] || userstate.username,
-    amount:      userstate.bits || 0,
+    username:    tags.username,
+    displayName: tags['display-name'] || tags.username,
+    amount:      parseInt(tags.bits || 0),
     message
   });
 }
 
-// ─── Sub / resub / gift ───────────────────────────────────────────────────────
-function onSub(channel, username, method, message, userstate) {
-  emit('twitch:event', {
-    type: 'sub', platform: 'twitch', username,
-    displayName: userstate['display-name'] || username, message
+function onSub(channel, username, method, message, tags) {
+  broadcast('twitch:event', {
+    type:        'sub',
+    platform:    'twitch',
+    username:    tags['display-name'] || username,
+    displayName: tags['display-name'] || username,
+    message
   });
 }
 
-function onResub(channel, username, months, message, userstate) {
-  emit('twitch:event', {
-    type: 'resub', platform: 'twitch', username,
-    displayName: userstate['display-name'] || username, months, message
+function onResub(channel, username, months, message, tags) {
+  broadcast('twitch:event', {
+    type:        'resub',
+    platform:    'twitch',
+    username:    tags['display-name'] || username,
+    displayName: tags['display-name'] || username,
+    months,
+    message
   });
 }
 
-function onSubgift(channel, username, streakMonths, recipient, methods, userstate) {
-  emit('twitch:event', {
-    type: 'gift', platform: 'twitch', username,
-    displayName: userstate['display-name'] || username, amount: 1
+function onSubGift(channel, username, streakMonths, recipient, methods, tags) {
+  broadcast('twitch:event', {
+    type:        'gift',
+    platform:    'twitch',
+    username:    tags['display-name'] || username,
+    displayName: tags['display-name'] || username,
+    amount:      1,
+    message:     recipient
   });
 }
 
-// ─── Raid ─────────────────────────────────────────────────────────────────────
 function onRaid(channel, username, viewers) {
-  emit('twitch:event', {
-    type: 'raid', platform: 'twitch', username,
-    displayName: username, amount: viewers
+  broadcast('twitch:event', {
+    type:        'raid',
+    platform:    'twitch',
+    username,
+    displayName: username,
+    amount:      viewers
   });
 }
 
-// ─── Moderation events ────────────────────────────────────────────────────────
-function onBan(channel, username) {
-  emit('twitch:event', { type: 'ban', platform: 'twitch', username });
+function onRedemption(channel, username, rewardType, tags, message) {
+  broadcast('twitch:event', {
+    type:        'redeem',
+    platform:    'twitch',
+    username:    tags['display-name'] || username,
+    displayName: tags['display-name'] || username,
+    giftName:    rewardType,
+    message
+  });
 }
 
-function onTimeout(channel, username, reason, duration) {
-  emit('twitch:event', { type: 'timeout', platform: 'twitch', username, amount: duration });
-}
+// ─── Moderation ───────────────────────────────────────────────────────────────
+// tmi.js handles these natively — the authed user must be broadcaster or mod.
 
-function onMessageDeleted(channel, username, deletedMessage, userstate) {
-  emit('twitch:message-deleted', { id: userstate['target-msg-id'], username });
-}
-
-// ─── Moderation actions ───────────────────────────────────────────────────────
-async function ban(channel, username, reason = '') {
+async function ban(channel, user, reason = '') {
   if (!client) throw new Error('No conectado a Twitch');
-  await client.ban(channel, username, reason);
+  const ch = channel.startsWith('#') ? channel : `#${channel}`;
+  await client.ban(ch, user, reason || undefined);
 }
 
-async function timeout(channel, username, seconds = 600, reason = '') {
+async function timeout(channel, user, seconds = 600, reason = '') {
   if (!client) throw new Error('No conectado a Twitch');
-  await client.timeout(channel, username, seconds, reason);
+  const ch = channel.startsWith('#') ? channel : `#${channel}`;
+  await client.timeout(ch, user, seconds, reason || undefined);
 }
 
-async function unban(channel, username) {
+async function unban(channel, user) {
   if (!client) throw new Error('No conectado a Twitch');
-  await client.unban(channel, username);
+  const ch = channel.startsWith('#') ? channel : `#${channel}`;
+  await client.unban(ch, user);
 }
 
 async function deleteMessage(channel, msgId) {
   if (!client) throw new Error('No conectado a Twitch');
-  await client.deletemessage(channel, msgId);
+  const ch = channel.startsWith('#') ? channel : `#${channel}`;
+  await client.deletemessage(ch, msgId);
 }
 
 async function sendMessage(channel, message) {
   if (!client) throw new Error('No conectado a Twitch');
-  await client.say(channel, message);
+  const ch = channel.startsWith('#') ? channel : `#${channel}`;
+  await client.say(ch, message);
 }
 
-// ─── User card (Helix API) ───────────────────────────────────────────────────
+// ─── User card (Helix API) ────────────────────────────────────────────────────
 async function getUserCard(channel, username) {
-  const settings = SettingsManager.get();
-  const token    = (oauthToken || settings.twitchToken || '').replace('oauth:', '');
-  const clientId = settings.twitchClientId || '';
-  if (!token || !clientId) return null;
-
+  if (!activeToken) return null;
   try {
-    const [userRes, followRes] = await Promise.all([
-      helixGet(`https://api.twitch.tv/helix/users?login=${username}`, token, clientId),
-      userId
-        ? helixGet(`https://api.twitch.tv/helix/channels/followers?broadcaster_id=${userId}&user_id=_placeholder_`, token, clientId).catch(() => null)
-        : null
+    const headers = { 'Authorization': `Bearer ${activeToken}`, 'Client-Id': CLIENT_ID };
+    // Follower info
+    const [userRes, followerRes] = await Promise.all([
+      globalThis.fetch(`https://api.twitch.tv/helix/users?login=${username}`, { headers }),
+      globalThis.fetch(`https://api.twitch.tv/helix/channels/followers?broadcaster_id=${activeUserId}&user_id=`, { headers })
     ]);
-
-    const user = userRes?.data?.[0];
+    const userData = await userRes.json();
+    const user     = userData.data?.[0];
     if (!user) return null;
 
-    // Check follow
-    const followInfo = userId
-      ? await helixGet(`https://api.twitch.tv/helix/channels/followers?broadcaster_id=${userId}&user_login=${username}`, token, clientId).catch(() => null)
-      : null;
+    const followerData = await globalThis.fetch(
+      `https://api.twitch.tv/helix/channels/followers?broadcaster_id=${activeUserId}&user_id=${user.id}`,
+      { headers }
+    ).then(r => r.json());
 
     return {
-      username:    user.login,
-      displayName: user.display_name,
-      avatarUrl:   user.profile_image_url,
-      isSub:       false,  // sub check requires separate scope
-      followedAt:  followInfo?.data?.[0]?.followed_at || null
+      avatarUrl:  user.profile_image_url || '',
+      followedAt: followerData.data?.[0]?.followed_at || null,
+      isSub:      false  // would need a sub check endpoint
     };
-  } catch (e) {
-    console.error('[Twitch] getUserCard error:', e.message);
+  } catch (err) {
+    console.error('[Twitch] getUserCard error:', err.message);
     return null;
   }
 }
 
 // ─── Badge loading ────────────────────────────────────────────────────────────
-async function loadBadges(channel, token, clientId) {
-  if (!token || !clientId) {
-    return;
-  }
+const badgeCache = {};  // { setId: { versionId: url } }
 
+async function loadBadges(channelId, token) {
+  if (!token) return;
   try {
+    const headers = { 'Authorization': `Bearer ${token}`, 'Client-Id': CLIENT_ID };
     const [globalRes, channelRes] = await Promise.all([
-      helixGet('https://api.twitch.tv/helix/chat/badges/global', token, clientId),
-      userId
-        ? helixGet(`https://api.twitch.tv/helix/chat/badges?broadcaster_id=${userId}`, token, clientId)
-        : null
+      globalThis.fetch('https://api.twitch.tv/helix/chat/badges/global', { headers }),
+      channelId
+        ? globalThis.fetch(`https://api.twitch.tv/helix/chat/badges?broadcaster_id=${channelId}`, { headers })
+        : Promise.resolve({ json: async () => ({ data: [] }) })
     ]);
-
-    console.log('[Twitch] Badges global:', globalRes?.data?.length || 0);
-    console.log('[Twitch] Badges channel:', channelRes?.data?.length || 0);
-
-    const allSets = [...(globalRes?.data || []), ...(channelRes?.data || [])];
-    allSets.forEach(set => {
-      badgeCache[set.set_id] = {};
-      set.versions.forEach(v => {
-        badgeCache[set.set_id][v.id] = {
-          url:   v.image_url_1x,
-          title: v.title || set.set_id
-        };
+    const parse = ({ data }) => {
+      (data || []).forEach(set => {
+        badgeCache[set.set_id] = {};
+        set.versions.forEach(v => {
+          badgeCache[set.set_id][v.id] = v.image_url_1x;
+        });
       });
-    });
+    };
+    parse(await globalRes.json());
+    parse(await channelRes.json());
+    console.log(`[Twitch] Badges loaded: ${Object.keys(badgeCache).length} sets`);
   } catch (err) {
-    console.error('[Twitch] Error cargando badges:', err.message);
+    console.error('[Twitch] loadBadges error:', err.message);
   }
 }
 
-function resolveBadges(rawBadges) {
-  return Object.entries(rawBadges).map(([setId, version]) => {
-    const versionData = badgeCache[setId]?.[version];
-    return { id: `${setId}/${version}`, url: versionData?.url || '', title: versionData?.title || setId };
-  });
+function buildBadgeObjects(badges, badgeInfo) {
+  return Object.entries(badges).map(([setId, versionId]) => {
+    const url   = badgeCache[setId]?.[versionId] || '';
+    const title = setId === 'subscriber'
+      ? `Sub ${badgeInfo.subscriber || versionId}`
+      : setId.replace(/_/g, ' ');
+    return { url, title };
+  }).filter(b => b.url);
 }
 
-// ─── Helix API helper ─────────────────────────────────────────────────────────
-async function helixGet(url, token, clientId) {
-  const res = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Client-Id': clientId
-    }
-  });
-  if (!res.ok) throw new Error(`Helix ${res.status}: ${url}`);
-  return res.json();
-}
-
-// ─── Emitters ─────────────────────────────────────────────────────────────────
-// Using shared broadcast utility from src/utils
-function emit(channel, data) {
-  broadcast(channel, data);
-}
-
-function emitStatus(connected) {
-  emit('twitch:status', { connected, channel: activeChannel });
-}
-
-module.exports = { connect, disconnect, ban, timeout, unban, deleteMessage, sendMessage, getUserCard };
+module.exports = {
+  connect, disconnect, ban, timeout, unban, deleteMessage, sendMessage, getUserCard
+};
